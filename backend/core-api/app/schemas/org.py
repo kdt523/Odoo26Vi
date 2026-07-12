@@ -34,6 +34,12 @@ class DepartmentOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class DepartmentTreeOut(DepartmentOut):
+    children: Optional[list["DepartmentTreeOut"]] = None
+
+    model_config = {"from_attributes": True}
+
+
 # ── AssetCategory ──────────────────────────────────────────────────────────
 class AssetCategoryCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=255)
@@ -49,6 +55,7 @@ class AssetCategoryOut(BaseModel):
     id: UUID
     name: str
     custom_fields: dict[str, Any]
+    is_active: bool
 
     model_config = {"from_attributes": True}
 
