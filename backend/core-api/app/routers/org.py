@@ -8,6 +8,7 @@ Endpoints:
     GET    /departments/{id}       — Get department detail
     PUT    /departments/{id}       — Update department (Admin)
     DELETE /departments/{id}       — Soft-delete department (Admin)
+    GET    /departments/{id}/tree  — Get department and children nested
 
   Asset Categories:
     GET    /categories             — List all categories
@@ -37,13 +38,15 @@ from app.models.department import Department
 from app.models.asset_category import AssetCategory
 from app.models.employee import Employee
 from app.models.activity_log import ActivityLog
-from app.services.activity_log import log_activity
+from app.models.asset import Asset
+from app.models.allocation import Allocation
 from app.schemas.org import (
     AssetCategoryCreate,
     AssetCategoryOut,
     AssetCategoryUpdate,
     DepartmentCreate,
     DepartmentOut,
+    DepartmentTreeOut,
     DepartmentUpdate,
     EmployeeCreate,
     EmployeeOut,
@@ -53,6 +56,20 @@ from app.schemas.org import (
 
 router = APIRouter(prefix="/org", tags=["org"])
 
+async def check_department_cycle(db: AsyncSession, dept_id: uuid.UUID, new_parent_id: uuid.UUID):
+    current = new_parent_id
+    while current:
+        if current == dept_id:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Circular parent chain detected.")
+        parent = await db.get(Department, current)
+        if not parent:
+            break
+        current = parent.parent_department_id
+
+def validate_flat_dict(d: dict):
+    for k, v in d.items():
+        if not isinstance(v, str):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="custom_fields must be a flat dictionary of strings.")
 
 # ── Departments ────────────────────────────────────────────────────────────
 
@@ -65,12 +82,22 @@ async def list_departments(db: AsyncSession = Depends(get_db), _=Depends(require
 
 @router.post("/departments", response_model=DepartmentOut, status_code=201,
              dependencies=[Depends(require_admin)])
-async def create_department(body: DepartmentCreate, db: AsyncSession = Depends(get_db), current_user=Depends(require_admin)):
+async def create_department(body: DepartmentCreate, db: AsyncSession = Depends(get_db)):
+    if body.parent_department_id:
+        parent = await db.get(Department, body.parent_department_id)
+        if not parent:
+            raise HTTPException(status_code=400, detail="Parent department not found")
+            
+    if body.head_employee_id:
+        head = await db.get(Employee, body.head_employee_id)
+        if not head:
+            raise HTTPException(status_code=400, detail="Head employee not found")
+
     dept = Department(
         name=body.name,
-        description=body.description,
         parent_department_id=body.parent_department_id,
-        head_employee_id=body.head_employee_id
+        head_employee_id=body.head_employee_id,
+        status=body.status
     )
     db.add(dept)
     await db.flush()
@@ -83,43 +110,105 @@ async def create_department(body: DepartmentCreate, db: AsyncSession = Depends(g
 @router.get("/departments/{department_id}", response_model=DepartmentOut)
 async def get_department(department_id: uuid.UUID, db: AsyncSession = Depends(get_db),
                          _=Depends(require_authenticated)):
-    # TODO: fetch by id → 404 if missing
-    raise HTTPException(status_code=status.HTTP_501_NOT_IMPLEMENTED, detail="Not implemented")
+    dept = await db.get(Department, department_id)
+    if not dept:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Department not found")
+    return dept
+
+
+@router.get("/departments/{department_id}/tree", response_model=DepartmentTreeOut)
+async def get_department_tree(department_id: uuid.UUID, db: AsyncSession = Depends(get_db), _=Depends(require_authenticated)):
+    stmt = select(Department)
+    result = await db.execute(stmt)
+    all_depts = result.scalars().all()
+    
+    dept_map = {d.id: DepartmentTreeOut.model_validate(d) for d in all_depts}
+    if department_id not in dept_map:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Department not found")
+        
+    for d in all_depts:
+        if d.parent_department_id and d.parent_department_id in dept_map:
+            parent = dept_map[d.parent_department_id]
+            if parent.children is None:
+                parent.children = []
+            parent.children.append(dept_map[d.id])
+            
+    return dept_map[department_id]
 
 
 @router.put("/departments/{department_id}", response_model=DepartmentOut,
             dependencies=[Depends(require_admin)])
 async def update_department(department_id: uuid.UUID, body: DepartmentUpdate,
-                             db: AsyncSession = Depends(get_db), current_user=Depends(require_admin)):
-    log_activity(db, current_user.id, "Department Updated", "Department", str(department_id))
-    # TODO: fetch → apply patch → commit
-    raise HTTPException(status_code=status.HTTP_501_NOT_IMPLEMENTED, detail="Not implemented")
+                             db: AsyncSession = Depends(get_db)):
+    dept = await db.get(Department, department_id)
+    if not dept:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Department not found")
+        
+    if body.parent_department_id is not None:
+        await check_department_cycle(db, department_id, body.parent_department_id)
+        parent = await db.get(Department, body.parent_department_id)
+        if not parent:
+            raise HTTPException(status_code=400, detail="Parent department not found")
+        dept.parent_department_id = body.parent_department_id
+        
+    if body.head_employee_id is not None:
+        head = await db.get(Employee, body.head_employee_id)
+        if not head:
+            raise HTTPException(status_code=400, detail="Head employee not found")
+        dept.head_employee_id = body.head_employee_id
+        
+    if body.name is not None:
+        dept.name = body.name
+    if body.status is not None:
+        dept.status = body.status
+        
+    await db.commit()
+    await db.refresh(dept)
+    return dept
 
 
-@router.delete("/departments/{department_id}", status_code=204,
-               dependencies=[Depends(require_admin)])
-async def delete_department(department_id: uuid.UUID, db: AsyncSession = Depends(get_db), current_user=Depends(require_admin)):
-    log_activity(db, current_user.id, "Department Deleted", "Department", str(department_id))
-    # TODO: soft-delete (set status=Inactive) or hard-delete with FK guard
-    raise HTTPException(status_code=status.HTTP_501_NOT_IMPLEMENTED, detail="Not implemented")
+@router.delete("/departments/{department_id}", dependencies=[Depends(require_admin)])
+async def delete_department(department_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    dept = await db.get(Department, department_id)
+    if not dept:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Department not found")
+        
+    emp_stmt = select(Employee).where(Employee.department_id == department_id).limit(1)
+    emp_res = await db.execute(emp_stmt)
+    has_employees = emp_res.scalar_one_or_none() is not None
+    
+    alloc_stmt = select(Allocation).where(Allocation.department_id == department_id).limit(1)
+    alloc_res = await db.execute(alloc_stmt)
+    has_assets = alloc_res.scalar_one_or_none() is not None
+    
+    if has_employees or has_assets:
+        dept.status = "Inactive"
+        await db.commit()
+        return {"detail": "Department has active employees/assets and was deactivated instead of deleted.", "deactivated": True}
+        
+    await db.delete(dept)
+    await db.commit()
+    return {"detail": "Department deleted."}
 
 
 # ── Asset Categories ───────────────────────────────────────────────────────
 
 @router.get("/categories", response_model=List[AssetCategoryOut])
 async def list_categories(db: AsyncSession = Depends(get_db), _=Depends(require_authenticated)):
-    stmt = select(AssetCategory)
+    stmt = select(AssetCategory).where(AssetCategory.is_active == True)
     result = await db.execute(stmt)
     return result.scalars().all()
 
 
 @router.post("/categories", response_model=AssetCategoryOut, status_code=201,
              dependencies=[Depends(require_asset_manager)])
-async def create_category(body: AssetCategoryCreate, db: AsyncSession = Depends(get_db), current_user=Depends(require_asset_manager)):
+async def create_category(body: AssetCategoryCreate, db: AsyncSession = Depends(get_db)):
+    validate_flat_dict(body.custom_fields)
+    
     cat = AssetCategory(
         name=body.name,
-        description=body.description,
-        custom_fields_schema=body.custom_fields_schema or {}
+        custom_fields=body.custom_fields,
+        is_active=True
     )
     db.add(cat)
     await db.flush()
@@ -132,25 +221,50 @@ async def create_category(body: AssetCategoryCreate, db: AsyncSession = Depends(
 @router.get("/categories/{category_id}", response_model=AssetCategoryOut)
 async def get_category(category_id: uuid.UUID, db: AsyncSession = Depends(get_db),
                        _=Depends(require_authenticated)):
-    # TODO: fetch by id → 404
-    raise HTTPException(status_code=status.HTTP_501_NOT_IMPLEMENTED, detail="Not implemented")
+    cat = await db.get(AssetCategory, category_id)
+    if not cat:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Category not found")
+    return cat
 
 
 @router.put("/categories/{category_id}", response_model=AssetCategoryOut,
             dependencies=[Depends(require_asset_manager)])
 async def update_category(category_id: uuid.UUID, body: AssetCategoryUpdate,
-                           db: AsyncSession = Depends(get_db), current_user=Depends(require_asset_manager)):
-    log_activity(db, current_user.id, "Asset Category Updated", "AssetCategory", str(category_id))
-    # TODO: fetch → patch → commit
-    raise HTTPException(status_code=status.HTTP_501_NOT_IMPLEMENTED, detail="Not implemented")
+                           db: AsyncSession = Depends(get_db)):
+    cat = await db.get(AssetCategory, category_id)
+    if not cat:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Category not found")
+        
+    if body.custom_fields is not None:
+        validate_flat_dict(body.custom_fields)
+        cat.custom_fields = body.custom_fields
+        
+    if body.name is not None:
+        cat.name = body.name
+        
+    await db.commit()
+    await db.refresh(cat)
+    return cat
 
 
-@router.delete("/categories/{category_id}", status_code=204,
-               dependencies=[Depends(require_admin)])
-async def delete_category(category_id: uuid.UUID, db: AsyncSession = Depends(get_db), current_user=Depends(require_admin)):
-    log_activity(db, current_user.id, "Asset Category Deleted", "AssetCategory", str(category_id))
-    # TODO: delete or soft-delete; guard if assets reference this category
-    raise HTTPException(status_code=status.HTTP_501_NOT_IMPLEMENTED, detail="Not implemented")
+@router.delete("/categories/{category_id}", dependencies=[Depends(require_admin)])
+async def delete_category(category_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    cat = await db.get(AssetCategory, category_id)
+    if not cat:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Category not found")
+        
+    asset_stmt = select(Asset).where(Asset.category_id == category_id).limit(1)
+    asset_res = await db.execute(asset_stmt)
+    has_assets = asset_res.scalar_one_or_none() is not None
+    
+    if has_assets:
+        cat.is_active = False
+        await db.commit()
+        return {"detail": "Category is in use and was softly disabled instead of hard-deleted.", "disabled": True}
+        
+    await db.delete(cat)
+    await db.commit()
+    return {"detail": "Category deleted."}
 
 
 # ── Employee Directory ─────────────────────────────────────────────────────

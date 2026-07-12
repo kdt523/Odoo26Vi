@@ -5,11 +5,16 @@
 
 import { useState, useEffect } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
 import { coreApi } from '../api/client';
 
 export default function AssetsPage() {
+  const { currentUser, role } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
-  
+
+  const defaultScope = role === 'DepartmentHead' ? 'department' : 'all';
+  const [scope, setScope] = useState(defaultScope);
+
   // URL bound filters
   const search = searchParams.get('tag') || searchParams.get('serial_number') || searchParams.get('name') || '';
   const statusFilter = searchParams.get('status') || '';
@@ -17,7 +22,7 @@ export default function AssetsPage() {
   const departmentFilter = searchParams.get('department_id') || '';
   const locationFilter = searchParams.get('location') || '';
   const page = parseInt(searchParams.get('page') || '1', 10);
-  
+
   // Local state
   const [assets, setAssets] = useState([]);
   const [total, setTotal] = useState(0);
@@ -45,6 +50,11 @@ export default function AssetsPage() {
   ];
 
   const CONDITIONS = ['New', 'Good', 'Fair', 'Poor', 'Damaged'];
+  const canRegisterAsset = role === 'Admin' || role === 'AssetManager';
+
+  useEffect(() => {
+    setScope(defaultScope);
+  }, [defaultScope]);
 
   useEffect(() => {
     // Fetch categories and departments for dropdowns
@@ -54,7 +64,7 @@ export default function AssetsPage() {
 
   useEffect(() => {
     fetchAssets();
-  }, [searchParams]);
+  }, [searchParams, scope, currentUser?.department_id]);
 
   const fetchAssets = async () => {
     setLoading(true);
@@ -64,8 +74,14 @@ export default function AssetsPage() {
       if (search) params.append('tag', search); // using tag to search globally for demo
       if (statusFilter) params.append('status', statusFilter);
       if (categoryFilter) params.append('category_id', categoryFilter);
-      if (departmentFilter) params.append('department_id', departmentFilter);
       if (locationFilter) params.append('location', locationFilter);
+
+      if (scope === 'department' && currentUser?.department_id) {
+        params.append('department_id', currentUser.department_id);
+      } else if (departmentFilter) {
+        params.append('department_id', departmentFilter);
+      }
+
       params.append('page', page);
       params.append('page_size', 20);
 
@@ -118,11 +134,30 @@ export default function AssetsPage() {
   return (
     <div className="page">
       <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <h1>Assets</h1>
-        <button id="btn-register-asset" className="btn btn-primary" onClick={() => setIsRegistering(!isRegistering)}>
-          {isRegistering ? 'Cancel' : '+ Register Asset'}
-        </button>
+        <h1>{role === 'Employee' ? 'My Assets' : 'Assets'}</h1>
+        {canRegisterAsset && (
+          <button id="btn-register-asset" className="btn btn-primary" onClick={() => setIsRegistering(!isRegistering)}>
+            {isRegistering ? 'Cancel' : '+ Register Asset'}
+          </button>
+        )}
       </div>
+
+      {role === 'DepartmentHead' && (
+        <div className="tabs" style={{ marginBottom: '1.5rem' }}>
+          <button
+            className={`tab ${scope === 'department' ? 'tab--active' : ''}`}
+            onClick={() => setScope('department')}
+          >
+            Department
+          </button>
+          <button
+            className={`tab ${scope === 'all' ? 'tab--active' : ''}`}
+            onClick={() => setScope('all')}
+          >
+            Org-wide
+          </button>
+        </div>
+      )}
 
       {isRegistering && (
         <div className="card" style={{ marginBottom: '20px', padding: '20px' }}>
@@ -194,10 +229,12 @@ export default function AssetsPage() {
           <option value="">All Categories</option>
           {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
         </select>
-        <select value={departmentFilter} onChange={(e) => updateFilters('department_id', e.target.value)} className="filter-select">
-          <option value="">All Departments</option>
-          {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
-        </select>
+        {scope !== 'department' && (
+          <select value={departmentFilter} onChange={(e) => updateFilters('department_id', e.target.value)} className="filter-select">
+            <option value="">All Departments</option>
+            {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+          </select>
+        )}
         <input
           type="text"
           placeholder="Location…"
@@ -244,7 +281,7 @@ export default function AssetsPage() {
           </tbody>
         </table>
       )}
-      
+
       <div style={{ marginTop: '20px', display: 'flex', justifyContent: 'space-between' }}>
         <span>Total: {total}</span>
         <div>
