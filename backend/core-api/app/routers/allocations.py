@@ -34,9 +34,11 @@ from app.schemas.allocations import (
     TransferRequestOut,
 )
 from app.models.allocation import Allocation
+from app.models.activity_log import ActivityLog
 from app.models.asset import Asset
 from app.models.employee import Employee
 from app.models.transfer_request import TransferRequest
+from app.services.notifications import create_notification
 
 router = APIRouter(prefix="/allocations", tags=["allocations"])
 
@@ -134,11 +136,30 @@ async def allocate_asset(body: AllocationCreate, db: AsyncSession = Depends(get_
         expected_return_date=body.expected_return_date,
         status="Active"
     )
-    
     db.add(new_alloc)
+
+    # ── Notification: AssetAssigned ────────────────────────────────────────
+    await create_notification(
+        db=db,
+        user_id=body.employee_id,
+        type_="AssetAssigned",
+        message=f"Asset '{asset.name}' has been allocated to you.",
+        entity_type="Allocation",
+        entity_id=str(new_alloc.id),
+    )
+
+    # ── Activity log ───────────────────────────────────────────────────────
+    db.add(ActivityLog(
+        user_id=body.employee_id,
+        action="asset_allocated",
+        entity_type="Allocation",
+        entity_id=str(new_alloc.id),
+        details={"asset_id": str(body.asset_id), "asset_name": asset.name},
+    ))
+
     await db.commit()
     await db.refresh(new_alloc)
-    
+
     # Return mapping
     return {
         "id": new_alloc.id,
@@ -178,20 +199,47 @@ async def return_asset(allocation_id: uuid.UUID, body: ReturnRequest, db: AsyncS
         raise HTTPException(status_code=404, detail="Allocation not found")
     if alloc.status != "Active":
         raise HTTPException(status_code=400, detail="Allocation is not active")
-        
+
     asset = await db.get(Asset, alloc.asset_id)
     if not asset:
         raise HTTPException(status_code=404, detail="Asset not found")
-        
+
+    # Detect overdue BEFORE changing status
+    was_overdue = (
+        alloc.expected_return_date is not None
+        and alloc.expected_return_date < date.today()
+    )
+
     alloc.status = "Returned"
     alloc.actual_return_date = body.actual_return_date
-    # Note: returning condition notes omitted since scaffold model lacked it, but could be logged.
-    
     asset.status = "Available"
-    
+
+    # ── Notification: OverdueReturnAlert (only if actually overdue) ────────
+    if was_overdue:
+        await create_notification(
+            db=db,
+            user_id=alloc.employee_id,
+            type_="OverdueReturnAlert",
+            message=(
+                f"Asset '{asset.name}' was returned late "
+                f"(expected {alloc.expected_return_date}, returned {body.actual_return_date})."
+            ),
+            entity_type="Allocation",
+            entity_id=str(alloc.id),
+        )
+
+    # ── Activity log ───────────────────────────────────────────────────────
+    db.add(ActivityLog(
+        user_id=alloc.employee_id,
+        action="asset_returned",
+        entity_type="Allocation",
+        entity_id=str(alloc.id),
+        details={"asset_id": str(alloc.asset_id), "was_overdue": was_overdue},
+    ))
+
     await db.commit()
     await db.refresh(alloc)
-    
+
     return {
         "id": alloc.id, "asset_id": alloc.asset_id, "employee_id": alloc.employee_id, "department_id": alloc.department_id,
         "allocated_date": alloc.allocated_date, "expected_return_date": alloc.expected_return_date,
@@ -246,6 +294,15 @@ async def approve_transfer(transfer_id: uuid.UUID, body: TransferRequestApproval
         
     if body.action == "reject":
         tr.status = "Rejected"
+
+        # ── Activity log ───────────────────────────────────────────────────
+        db.add(ActivityLog(
+            user_id=tr.requested_by,
+            action="transfer_rejected",
+            entity_type="TransferRequest",
+            entity_id=str(tr.id),
+        ))
+
         await db.commit()
         await db.refresh(tr)
         return tr
@@ -253,21 +310,20 @@ async def approve_transfer(transfer_id: uuid.UUID, body: TransferRequestApproval
     if body.action == "approve":
         if tr.status != "Requested":
             raise HTTPException(status_code=400, detail="Transfer must be Requested to approve")
-            
+
         old_alloc = await db.get(Allocation, tr.allocation_id)
         if not old_alloc:
             raise HTTPException(status_code=404, detail="Linked allocation not found")
-            
+
         asset = await db.get(Asset, old_alloc.asset_id)
         if not asset:
             raise HTTPException(status_code=404, detail="Asset not found")
-            
+
         # Atomic transfer operation
         tr.status = "Approved"
-        
         old_alloc.status = "Transferred"
         old_alloc.actual_return_date = date.today()
-        
+
         new_alloc = Allocation(
             asset_id=old_alloc.asset_id,
             employee_id=tr.target_employee_id,
@@ -276,9 +332,46 @@ async def approve_transfer(transfer_id: uuid.UUID, body: TransferRequestApproval
             status="Active"
         )
         db.add(new_alloc)
-        
+
+        # ── Notification: TransferApproved → requester ─────────────────────
+        if tr.requested_by:
+            await create_notification(
+                db=db,
+                user_id=tr.requested_by,
+                type_="TransferApproved",
+                message=(
+                    f"Your transfer request for asset '{asset.name}' has been approved."
+                ),
+                entity_type="TransferRequest",
+                entity_id=str(tr.id),
+            )
+
+        # ── Notification: AssetAssigned → the new holder ───────────────────
+        if tr.target_employee_id:
+            await create_notification(
+                db=db,
+                user_id=tr.target_employee_id,
+                type_="AssetAssigned",
+                message=f"Asset '{asset.name}' has been transferred and allocated to you.",
+                entity_type="Allocation",
+                entity_id=str(new_alloc.id),
+            )
+
+        # ── Activity log ───────────────────────────────────────────────────
+        db.add(ActivityLog(
+            user_id=tr.requested_by,
+            action="transfer_approved",
+            entity_type="TransferRequest",
+            entity_id=str(tr.id),
+            details={
+                "asset_id": str(old_alloc.asset_id),
+                "asset_name": asset.name,
+                "from_allocation": str(old_alloc.id),
+                "to_employee": str(tr.target_employee_id),
+            },
+        ))
+
         # Asset remains Allocated
-        
         await db.commit()
         await db.refresh(tr)
         return tr
