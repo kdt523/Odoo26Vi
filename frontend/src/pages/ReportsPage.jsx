@@ -28,19 +28,17 @@ export default function ReportsPage() {
       try {
         const query = `?from_date=${fromDate}&to_date=${toDate}`;
         
-        // Example actual fetch (commented out until proxy is set up):
-        // const [utilRes, maintRes, allocRes, heatRes] = await Promise.all([
-        //   fetch(`/api/reports/asset-utilization${query}`),
-        //   fetch(`/api/reports/maintenance-frequency${query}`),
-        //   fetch(`/api/reports/allocation-summary${query}`),
-        //   fetch(`/api/reports/booking-heatmap${query}`)
-        // ]);
+        const [utilRes, maintRes, allocRes, heatRes] = await Promise.all([
+          fetch(`/api/v1/reports/asset-utilization${query}`),
+          fetch(`/api/v1/reports/maintenance-frequency${query}`),
+          fetch(`/api/v1/reports/allocation-summary${query}`),
+          fetch(`/api/v1/reports/booking-heatmap${query}`)
+        ]);
         
-        // Simulating data fetching:
-        setUtilizationData([]);
-        setMaintenanceData([]);
-        setAllocationData([]);
-        setHeatmapData([]);
+        setUtilizationData(await utilRes.json());
+        setMaintenanceData(await maintRes.json());
+        setAllocationData(await allocRes.json());
+        setHeatmapData(await heatRes.json());
         
       } catch (err) {
         console.error("Failed to fetch reports:", err);
@@ -50,7 +48,7 @@ export default function ReportsPage() {
   }, [fromDate, toDate]);
 
   const handleExport = (type) => {
-    const url = `/api/reports/export?report_type=${type}&from_date=${fromDate}&to_date=${toDate}`;
+    const url = `/api/v1/reports/export?report_type=${type}&from_date=${fromDate}&to_date=${toDate}`;
     window.open(url, '_blank');
   };
 

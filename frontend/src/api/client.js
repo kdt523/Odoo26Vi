@@ -8,8 +8,8 @@
 
 import axios from 'axios';
 
-const CORE_API_URL = import.meta.env.VITE_CORE_API_URL || 'http://localhost:8000';
-const REPORTS_API_URL = import.meta.env.VITE_REPORTS_API_URL || 'http://localhost:8001';
+// Base URL is relative to use Vite's proxy during dev
+const CORE_API_URL = import.meta.env.VITE_CORE_API_URL || '';
 
 /** Attach Authorization header from localStorage on every request */
 const authInterceptor = (config) => {
@@ -22,17 +22,12 @@ const authInterceptor = (config) => {
 
 /** core-api (FastAPI) axios instance */
 export const coreApi = axios.create({
-  baseURL: `${CORE_API_URL}/api`,
+  baseURL: `${CORE_API_URL}/api/v1`,
   headers: { 'Content-Type': 'application/json' },
 });
 coreApi.interceptors.request.use(authInterceptor);
 
-/** reports-api (Flask) axios instance */
-export const reportsApi = axios.create({
-  baseURL: `${REPORTS_API_URL}/api`,
-  headers: { 'Content-Type': 'application/json' },
-});
-reportsApi.interceptors.request.use(authInterceptor);
+
 
 /** Handle 401 globally — redirect to /login */
 const unauthorizedInterceptor = (error) => {
@@ -45,4 +40,3 @@ const unauthorizedInterceptor = (error) => {
 };
 
 coreApi.interceptors.response.use(undefined, unauthorizedInterceptor);
-reportsApi.interceptors.response.use(undefined, unauthorizedInterceptor);

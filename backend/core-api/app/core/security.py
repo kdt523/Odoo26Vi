@@ -12,10 +12,12 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
 from passlib.context import CryptContext
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.db import get_db
+from app.models.employee import Employee
 
 # ── Password hashing ───────────────────────────────────────────────────────
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -84,12 +86,20 @@ async def get_current_user(
     db: AsyncSession = Depends(get_db),
 ):
     """
-    TODO: Look up the Employee record from `payload["sub"]` in the DB.
-          Return the Employee ORM object.
-          For now returns the raw payload dict.
+    Look up the Employee record from `payload["sub"]` in the DB.
+    Return the Employee ORM object.
     """
-    # TODO: implement DB lookup
-    return payload
+    stmt = select(Employee).where(Employee.id == payload.get("sub"))
+    result = await db.execute(stmt)
+    employee = result.scalar_one_or_none()
+    
+    if not employee:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User not found",
+        )
+        
+    return employee
 
 
 # ── Role-based dependency factories ───────────────────────────────────────

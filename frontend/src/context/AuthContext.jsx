@@ -20,34 +20,36 @@ export function AuthProvider({ children }) {
 
   // ── Restore session from localStorage on app load ──────────────────────
   useEffect(() => {
-    const token = localStorage.getItem('access_token');
-    if (token) {
-      // TODO: call GET /auth/me to validate token + fetch fresh user data
-      //       For now, parse the JWT payload (base64) for basic user info.
-      try {
-        const payload = JSON.parse(atob(token.split('.')[1]));
-        setCurrentUser({
-          id: payload.sub,
-          role: payload.role,
-          // name/email not in JWT payload — will be fetched from /auth/me
-        });
-      } catch {
-        localStorage.removeItem('access_token');
-        localStorage.removeItem('refresh_token');
+    const checkToken = async () => {
+      const token = localStorage.getItem('access_token');
+      if (token) {
+        try {
+          const { data } = await coreApi.get('/auth/me', {
+            headers: { Authorization: `Bearer ${token}` }
+          });
+          setCurrentUser(data);
+        } catch {
+          localStorage.removeItem('access_token');
+          localStorage.removeItem('refresh_token');
+          setCurrentUser(null);
+        }
       }
-    }
-    setLoading(false);
+      setLoading(false);
+    };
+    checkToken();
   }, []);
 
   // ── Login ──────────────────────────────────────────────────────────────
   const login = useCallback(async (email, password) => {
-    // TODO: implement when auth router is complete
-    // const { data } = await coreApi.post('/auth/login', { email, password });
-    // localStorage.setItem('access_token', data.access_token);
-    // localStorage.setItem('refresh_token', data.refresh_token);
-    // const payload = JSON.parse(atob(data.access_token.split('.')[1]));
-    // setCurrentUser({ id: payload.sub, role: payload.role });
-    throw new Error('Login not implemented — auth router is a stub');
+    const { data } = await coreApi.post('/auth/login', { email, password });
+    localStorage.setItem('access_token', data.access_token);
+    localStorage.setItem('refresh_token', data.refresh_token);
+    
+    // Fetch fresh user data after login
+    const { data: userData } = await coreApi.get('/auth/me', {
+      headers: { Authorization: `Bearer ${data.access_token}` }
+    });
+    setCurrentUser(userData);
   }, []);
 
   // ── Logout ─────────────────────────────────────────────────────────────

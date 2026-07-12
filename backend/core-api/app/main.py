@@ -9,7 +9,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
-from app.routers import auth, org, assets, allocations, bookings, maintenance, audits, dashboard
+from app.routers import auth, org, assets, allocations, bookings, maintenance, audits, dashboard, reports
 
 # ── Application factory ────────────────────────────────────────────────────
 app = FastAPI(
@@ -43,6 +43,7 @@ app.include_router(bookings.router,    prefix=API_PREFIX)
 app.include_router(maintenance.router, prefix=API_PREFIX)
 app.include_router(audits.router,      prefix=API_PREFIX)
 app.include_router(dashboard.router,   prefix=API_PREFIX)
+app.include_router(reports.router,     prefix=API_PREFIX)
 
 
 # ── Health check ───────────────────────────────────────────────────────────
