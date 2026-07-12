@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.employee import Employee
+from app.models.revoked_token import RevokedToken
 
 from app.core.security import (
     create_access_token,
@@ -81,8 +82,14 @@ async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/refresh", response_model=TokenResponse)
-async def refresh_token(body: RefreshRequest):
+async def refresh_token(body: RefreshRequest, db: AsyncSession = Depends(get_db)):
     """Issue a new access token given a valid refresh token."""
+    # Check if token is revoked
+    revoked_stmt = select(RevokedToken).where(RevokedToken.token == body.refresh_token)
+    revoked_res = await db.execute(revoked_stmt)
+    if revoked_res.scalar_one_or_none():
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token has been revoked")
+        
     try:
         payload = decode_token(body.refresh_token)
         if payload.get("type") != "refresh":
@@ -110,12 +117,18 @@ async def refresh_token(body: RefreshRequest):
 
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
-async def logout(current_user=Depends(get_current_user)):
+async def logout(body: RefreshRequest, db: AsyncSession = Depends(get_db)):
     """
-    Logout stub. JWT is stateless — real invalidation requires a token
-    denylist (Redis recommended). Client should discard the token.
-    TODO: implement token denylist if needed.
+    Invalidate the given refresh token by storing it in a blocklist.
+    Client is expected to discard the tokens on their end.
     """
+    # Check if already revoked to be idempotent
+    stmt = select(RevokedToken).where(RevokedToken.token == body.refresh_token)
+    result = await db.execute(stmt)
+    if not result.scalar_one_or_none():
+        revoked = RevokedToken(token=body.refresh_token)
+        db.add(revoked)
+        await db.commit()
     return None
 
 

@@ -14,3 +14,5 @@ from app.models.audit_cycle import AuditCycle, AuditCycleAuditor  # noqa: F401
 from app.models.audit_item import AuditItem  # noqa: F401
 from app.models.notification import Notification  # noqa: F401
 from app.models.activity_log import ActivityLog  # noqa: F401
+from app.models.upload import UploadRecord  # noqa: F401
+from app.models.revoked_token import RevokedToken  # noqa: F401

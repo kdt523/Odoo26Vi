@@ -2,12 +2,22 @@
 app/schemas/assets.py — Pydantic schemas for the assets router.
 """
 
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, Optional
 from uuid import UUID
 
 from pydantic import BaseModel, Field
+
+
+class AssetHistoryItem(BaseModel):
+    id: UUID
+    type: str  # "allocation" or "maintenance"
+    date: datetime
+    status: str
+    details: dict[str, Any]
+    
+    model_config = {"from_attributes": True}
 
 
 class AssetCreate(BaseModel):
