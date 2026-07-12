@@ -36,6 +36,7 @@ from app.db import get_db
 from app.models.department import Department
 from app.models.asset import AssetCategory
 from app.models.employee import Employee
+from app.models.activity_log import ActivityLog
 from app.schemas.org import (
     AssetCategoryCreate,
     AssetCategoryOut,
@@ -147,8 +148,26 @@ async def delete_category(category_id: uuid.UUID, db: AsyncSession = Depends(get
 
 @router.get("/employees", response_model=List[EmployeeOut],
             dependencies=[Depends(require_admin)])
-async def list_employees(db: AsyncSession = Depends(get_db)):
+async def list_employees(
+    name: str | None = None,
+    email: str | None = None,
+    department_id: uuid.UUID | None = None,
+    role: str | None = None,
+    status: str | None = None,
+    db: AsyncSession = Depends(get_db)
+):
     stmt = select(Employee)
+    if name:
+        stmt = stmt.where(Employee.name.ilike(f"%{name}%"))
+    if email:
+        stmt = stmt.where(Employee.email.ilike(f"%{email}%"))
+    if department_id:
+        stmt = stmt.where(Employee.department_id == department_id)
+    if role:
+        stmt = stmt.where(Employee.role == role)
+    if status:
+        stmt = stmt.where(Employee.status == status)
+        
     result = await db.execute(stmt)
     return result.scalars().all()
 
@@ -171,25 +190,58 @@ async def get_employee(employee_id: uuid.UUID, db: AsyncSession = Depends(get_db
             dependencies=[Depends(require_admin)])
 async def update_employee(employee_id: uuid.UUID, body: EmployeeUpdate,
                            db: AsyncSession = Depends(get_db)):
-    # TODO: fetch → patch → commit
-    raise HTTPException(status_code=status.HTTP_501_NOT_IMPLEMENTED, detail="Not implemented")
-
-
-@router.post("/employees/{employee_id}/promote", response_model=EmployeeOut,
-             dependencies=[Depends(require_admin)])
-async def promote_employee(employee_id: uuid.UUID, body: RolePromotionRequest,
-                            db: AsyncSession = Depends(get_db)):
-    """
-    Admin-only: change an employee's role.
-    This is the ONLY way to assign DepartmentHead / AssetManager / Admin roles.
-    """
     stmt = select(Employee).where(Employee.id == employee_id)
     result = await db.execute(stmt)
     employee = result.scalar_one_or_none()
     if not employee:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Employee not found")
         
+    if body.name is not None:
+        employee.name = body.name
+    if body.department_id is not None:
+        employee.department_id = body.department_id
+    if body.status is not None:
+        employee.status = body.status
+        
+    await db.commit()
+    await db.refresh(employee)
+    return employee
+
+
+@router.post("/employees/{employee_id}/promote", response_model=EmployeeOut,
+             dependencies=[Depends(require_admin)])
+async def promote_employee(employee_id: uuid.UUID, body: RolePromotionRequest,
+                            current_user=Depends(require_admin),
+                            db: AsyncSession = Depends(get_db)):
+    """
+    Admin-only: change an employee's role.
+    This is the ONLY way to assign DepartmentHead / AssetManager / Admin roles.
+    """
+    if body.role == "Admin":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot promote to Admin via this endpoint")
+        
+    stmt = select(Employee).where(Employee.id == employee_id)
+    result = await db.execute(stmt)
+    employee = result.scalar_one_or_none()
+    if not employee:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Employee not found")
+        
+    old_role = employee.role
     employee.role = body.role
+    
+    # Log the promotion
+    log_entry = ActivityLog(
+        user_id=current_user.id,
+        action="role_promoted",
+        entity_type="Employee",
+        entity_id=str(employee.id),
+        details={
+            "old_role": old_role,
+            "new_role": employee.role
+        }
+    )
+    db.add(log_entry)
+    
     await db.commit()
     await db.refresh(employee)
     return employee
