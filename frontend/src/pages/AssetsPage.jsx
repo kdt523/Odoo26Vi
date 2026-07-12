@@ -4,14 +4,17 @@
  */
 
 import { useState, useEffect } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams, useNavigate } from 'react-router-dom';
 import { coreApi } from '../api/client';
 
 import { useAuth } from '../context/AuthContext';
+import QrScanModal from '../components/QrScanModal';
 
 export default function AssetsPage({ endpoint: forcedEndpoint, title: forcedTitle }) {
   const { role } = useAuth();
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
+  const [showQrScanner, setShowQrScanner] = useState(false);
   
   // URL bound filters
   const search = searchParams.get('tag') || searchParams.get('serial_number') || searchParams.get('name') || '';
@@ -124,6 +127,18 @@ export default function AssetsPage({ endpoint: forcedEndpoint, title: forcedTitl
     }
   };
 
+  const handleQrScan = async (decodedText) => {
+    setShowQrScanner(false);
+    // decodedText could be a full URL like /assets/lookup/AF-0001 or just the tag
+    const tag = decodedText.split('/').pop();
+    try {
+      const res = await coreApi.get(`/assets/lookup/${tag}`);
+      navigate(`/assets/${res.data.id}`);
+    } catch {
+      alert(`Asset not found for tag: ${tag}`);
+    }
+  };
+
   return (
     <div className="page">
       <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -149,7 +164,20 @@ export default function AssetsPage({ endpoint: forcedEndpoint, title: forcedTitl
             {isRegistering ? 'Cancel' : '+ Register Asset'}
           </button>
         )}
+        <button
+          id="btn-scan-qr"
+          className="btn btn-secondary"
+          onClick={() => setShowQrScanner(true)}
+          title="Scan QR Code"
+          style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+        >
+          📷 Scan QR
+        </button>
       </div>
+
+      {showQrScanner && (
+        <QrScanModal onScan={handleQrScan} onClose={() => setShowQrScanner(false)} />
+      )}
 
       {isRegistering && (
         <div className="card" style={{ marginBottom: '20px', padding: '20px' }}>

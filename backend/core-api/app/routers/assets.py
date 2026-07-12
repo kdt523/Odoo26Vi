@@ -2,17 +2,25 @@
 app/routers/assets.py — Asset registry router.
 
 Endpoints:
-  GET    /                  — List/search assets (filterable)
-  POST   /                  — Register a new asset (AssetManager)
-  GET    /{id}              — Asset detail
-  PUT    /{id}              — Update asset metadata (AssetManager)
-  GET    /{id}/history      — Allocation + maintenance history
+  GET    /                   — List/search assets (filterable)
+  POST   /                   — Register a new asset (AssetManager)
+  GET    /mine               — Assets allocated to the calling employee
+  GET    /department         — Assets allocated to a department (DeptHead+)
+  GET    /qr/:asset_tag      — QR code PNG for an asset
+  GET    /lookup/:asset_tag  — Fast asset lookup by tag (for QR scan flow)
+  GET    /{id}               — Asset detail
+  PUT    /{id}               — Update asset metadata (AssetManager)
+  GET    /{id}/history       — Allocation + maintenance history
 """
 
+import io
+import os
 import uuid
 from typing import Optional, List
 
+import qrcode
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, text, desc
 
@@ -127,8 +135,67 @@ async def register_asset(body: AssetCreate, current_user=Depends(require_asset_m
     
     # Update entity_id in log_entry now that asset.id is populated
     log_entry.entity_id = str(asset.id)
+    
+    # Generate QR code synchronously
+    _generate_qr(generated_tag)
+    
     await db.commit()
     
+    return asset
+
+
+def _generate_qr(asset_tag: str) -> None:
+    """Generate and persist a QR PNG for the given asset_tag."""
+    os.makedirs("local_qr", exist_ok=True)
+    img = qrcode.make(asset_tag)
+    img.save(os.path.join("local_qr", f"{asset_tag}.png"))
+
+
+@router.get("/qr/{asset_tag}")
+async def get_asset_qr(
+    asset_tag: str,
+    db: AsyncSession = Depends(get_db),
+    _=Depends(require_authenticated),
+):
+    """
+    Returns the QR code PNG for an asset by its tag.
+    Generates on-the-fly if the file is missing (e.g. pre-existing assets).
+    """
+    # Verify asset exists
+    stmt = select(Asset).where(Asset.asset_tag == asset_tag)
+    result = await db.execute(stmt)
+    if not result.scalar_one_or_none():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset not found")
+
+    qr_path = os.path.join("local_qr", f"{asset_tag}.png")
+    if not os.path.exists(qr_path):
+        _generate_qr(asset_tag)
+
+    with open(qr_path, "rb") as f:
+        img_bytes = f.read()
+
+    return StreamingResponse(
+        io.BytesIO(img_bytes),
+        media_type="image/png",
+        headers={"Content-Disposition": f'inline; filename="{asset_tag}.png"'},
+    )
+
+
+@router.get("/lookup/{asset_tag}", response_model=AssetOut)
+async def lookup_asset_by_tag(
+    asset_tag: str,
+    db: AsyncSession = Depends(get_db),
+    _=Depends(require_authenticated),
+):
+    """
+    Fast lookup by asset_tag (indexed column). Used by QR scan flow.
+    Returns the same shape as GET /assets/:id.
+    """
+    stmt = select(Asset).where(Asset.asset_tag == asset_tag)
+    result = await db.execute(stmt)
+    asset = result.scalar_one_or_none()
+    if not asset:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset not found")
     return asset
 
 
