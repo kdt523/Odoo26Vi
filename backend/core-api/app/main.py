@@ -9,7 +9,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
-from app.routers import auth, org, assets, allocations, bookings, maintenance, audits, dashboard, reports
+from app.routers import auth, org, assets, allocations, bookings, maintenance, audits, dashboard, reports, notifications, activity_log
 
 # ── Application factory ────────────────────────────────────────────────────
 app = FastAPI(
@@ -35,15 +35,17 @@ app.add_middleware(
 # ── Routers ────────────────────────────────────────────────────────────────
 API_PREFIX = settings.API_V1_PREFIX
 
-app.include_router(auth.router,        prefix=API_PREFIX)
-app.include_router(org.router,         prefix=API_PREFIX)
-app.include_router(assets.router,      prefix=API_PREFIX)
-app.include_router(allocations.router, prefix=API_PREFIX)
-app.include_router(bookings.router,    prefix=API_PREFIX)
-app.include_router(maintenance.router, prefix=API_PREFIX)
-app.include_router(audits.router,      prefix=API_PREFIX)
-app.include_router(dashboard.router,   prefix=API_PREFIX)
-app.include_router(reports.router,     prefix=API_PREFIX)
+app.include_router(auth.router,         prefix=API_PREFIX)
+app.include_router(org.router,          prefix=API_PREFIX)
+app.include_router(assets.router,       prefix=API_PREFIX)
+app.include_router(allocations.router,  prefix=API_PREFIX)
+app.include_router(bookings.router,     prefix=API_PREFIX)
+app.include_router(maintenance.router,  prefix=API_PREFIX)
+app.include_router(audits.router,       prefix=API_PREFIX)
+app.include_router(dashboard.router,    prefix=API_PREFIX)
+app.include_router(reports.router,      prefix=API_PREFIX)
+app.include_router(notifications.router, prefix=API_PREFIX)
+app.include_router(activity_log.router, prefix=API_PREFIX)
 
 
 # ── Health check ───────────────────────────────────────────────────────────

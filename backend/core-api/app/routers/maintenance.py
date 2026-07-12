@@ -29,8 +29,10 @@ from app.schemas.maintenance import (
     TechnicianAssignment,
 )
 from app.models.maintenance_request import MaintenanceRequest
+from app.models.activity_log import ActivityLog
 from app.models.asset import Asset
 from app.models.employee import Employee
+from app.services.notifications import create_notification
 
 router = APIRouter(prefix="/maintenance", tags=["maintenance"])
 
@@ -131,7 +133,28 @@ async def approve_maintenance(
     req.status = "Approved"
     req.approved_by = user.id
     asset.status = "UnderMaintenance"
-    
+
+    # ── Notification: MaintenanceApproved → the requester ────────────────
+    await create_notification(
+        db=db,
+        user_id=req.raised_by,
+        type_="MaintenanceApproved",
+        message=(
+            f"Your maintenance request for asset '{asset.name}' has been approved."
+        ),
+        entity_type="MaintenanceRequest",
+        entity_id=str(req.id),
+    )
+
+    # ── Activity log ───────────────────────────────────────────────────────
+    db.add(ActivityLog(
+        user_id=user.id,
+        action="maintenance_approved",
+        entity_type="MaintenanceRequest",
+        entity_id=str(req.id),
+        details={"asset_id": str(req.asset_id), "approved_by": str(user.id)},
+    ))
+
     await db.commit()
     await db.refresh(req)
     return req
@@ -151,6 +174,28 @@ async def reject_maintenance(
         
     req.status = "Rejected"
     req.approved_by = user.id
+
+    # ── Notification: MaintenanceRejected → the requester ────────────────
+    await create_notification(
+        db=db,
+        user_id=req.raised_by,
+        type_="MaintenanceRejected",
+        message=(
+            f"Your maintenance request for asset has been rejected."
+        ),
+        entity_type="MaintenanceRequest",
+        entity_id=str(req.id),
+    )
+
+    # ── Activity log ───────────────────────────────────────────────────────
+    db.add(ActivityLog(
+        user_id=user.id,
+        action="maintenance_rejected",
+        entity_type="MaintenanceRequest",
+        entity_id=str(req.id),
+        details={"asset_id": str(req.asset_id), "rejected_by": str(user.id)},
+    ))
+
     await db.commit()
     await db.refresh(req)
     return req
