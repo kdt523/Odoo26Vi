@@ -53,6 +53,19 @@ async def seed_data():
             )
             db.add(mgr)
 
+        DEPT_HEAD_ID = uuid.UUID("00000000-0000-0000-0000-000000000010")
+        dept_head = await db.get(Employee, DEPT_HEAD_ID)
+        if not dept_head:
+            dept_head = Employee(
+                id=DEPT_HEAD_ID,
+                name="Test Dept Head",
+                email="depthead@test.com",
+                password_hash=hash_password("password123"),
+                department_id=DEPT_ID,
+                role="DepartmentHead"
+            )
+            db.add(dept_head)
+
         # 3. Asset Category
         cat = await db.get(AssetCategory, CATEGORY_ID)
         if not cat:

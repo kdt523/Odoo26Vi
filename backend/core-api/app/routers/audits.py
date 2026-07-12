@@ -26,7 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import get_current_user, require_asset_manager, require_authenticated
 from app.db import get_db
-from app.models.activity_log import ActivityLog
+from app.services.activity_log import log_activity
 from app.models.audit_cycle import AuditCycle, audit_cycle_auditors
 from app.models.audit_item import AuditItem
 from app.models.employee import Employee
@@ -83,14 +83,16 @@ async def create_audit_cycle(
         status="Draft",
     )
     db.add(cycle)
+    await db.flush()
 
-    db.add(ActivityLog(
-        user_id=current_user.id,
-        action="audit_cycle_created",
-        entity_type="AuditCycle",
-        entity_id=str(cycle.id),
+    log_activity(
+        db,
+        current_user.id,
+        "audit_cycle_created",
+        "AuditCycle",
+        str(cycle.id),
         details={"scope_department_id": str(body.scope_department_id) if body.scope_department_id else None},
-    ))
+    )
 
     await db.commit()
     await db.refresh(cycle)
@@ -119,6 +121,7 @@ async def update_audit_cycle(
     cycle_id: uuid.UUID,
     body: AuditCycleUpdate,
     db: AsyncSession = Depends(get_db),
+    current_user: Employee = Depends(_resolve_user),
 ):
     cycle = await db.get(AuditCycle, cycle_id)
     if not cycle:
@@ -129,6 +132,8 @@ async def update_audit_cycle(
     update_data = body.model_dump(exclude_unset=True)
     for field, value in update_data.items():
         setattr(cycle, field, value)
+
+    log_activity(db, current_user.id, "audit_cycle_updated", "AuditCycle", str(cycle.id), details={"updated_fields": list(update_data.keys())})
 
     await db.commit()
     await db.refresh(cycle)
@@ -143,6 +148,7 @@ async def assign_auditors(
     cycle_id: uuid.UUID,
     body: AuditorAssignment,
     db: AsyncSession = Depends(get_db),
+    current_user: Employee = Depends(_resolve_user),
 ):
     """Assign employees as auditors; skips duplicates."""
     cycle = await db.get(AuditCycle, cycle_id)
@@ -164,6 +170,8 @@ async def assign_auditors(
                 )
             )
 
+    log_activity(db, current_user.id, "auditors_assigned", "AuditCycle", str(cycle.id), details={"auditor_ids": [str(eid) for eid in body.employee_ids]})
+
     await db.commit()
     await db.refresh(cycle)
     return cycle
@@ -177,12 +185,14 @@ async def remove_auditor(
     cycle_id: uuid.UUID,
     employee_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
+    current_user: Employee = Depends(_resolve_user),
 ):
     stmt = delete(audit_cycle_auditors).where(
         audit_cycle_auditors.c.audit_cycle_id == cycle_id,
         audit_cycle_auditors.c.employee_id == employee_id,
     )
     await db.execute(stmt)
+    log_activity(db, current_user.id, "auditor_removed", "AuditCycle", str(cycle_id), details={"removed_employee_id": str(employee_id)})
     await db.commit()
 
 
@@ -262,17 +272,19 @@ async def mark_audit_item(
             )
 
     # ── Activity log ───────────────────────────────────────────────────────
-    db.add(ActivityLog(
-        user_id=current_user.id,
-        action="audit_item_marked",
-        entity_type="AuditItem",
-        entity_id=str(item.id),
+    await db.flush()
+    log_activity(
+        db,
+        current_user.id,
+        "audit_item_marked",
+        "AuditItem",
+        str(item.id),
         details={
             "cycle_id": str(cycle_id),
             "asset_id": str(body.asset_id),
             "result": body.result,
         },
-    ))
+    )
 
     await db.commit()
     await db.refresh(item)
@@ -301,13 +313,14 @@ async def close_audit_cycle(
     cycle.status = "Closed"
     cycle.end_date = date.today()
 
-    db.add(ActivityLog(
-        user_id=current_user.id,
-        action="audit_cycle_closed",
-        entity_type="AuditCycle",
-        entity_id=str(cycle.id),
+    log_activity(
+        db,
+        current_user.id,
+        "audit_cycle_closed",
+        "AuditCycle",
+        str(cycle.id),
         details={"closed_by": str(current_user.id), "cycle_id": str(cycle.id)},
-    ))
+    )
 
     await db.commit()
     await db.refresh(cycle)
