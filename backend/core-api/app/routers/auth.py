@@ -56,6 +56,11 @@ async def signup(body: SignupRequest, db: AsyncSession = Depends(get_db)):
         status="Active"
     )
     db.add(employee)
+    
+    # Flush to ensure employee.id is generated if not already
+    await db.flush()
+    log_activity(db, employee.id, "User Signed Up", "User", str(employee.id))
+    
     await db.commit()
     await db.refresh(employee)
     return employee
@@ -73,6 +78,9 @@ async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)):
         
     access_token = create_access_token(subject=str(employee.id), role=employee.role)
     refresh_token = create_refresh_token(subject=str(employee.id))
+    
+    log_activity(db, employee.id, "User Logged In", "User", str(employee.id))
+    await db.commit()
     
     return {
         "access_token": access_token,
@@ -107,6 +115,9 @@ async def refresh_token(body: RefreshRequest, db: AsyncSession = Depends(get_db)
         access_token = create_access_token(subject=str(employee.id), role=employee.role)
         new_refresh_token = create_refresh_token(subject=str(employee.id))
         
+        log_activity(db, employee.id, "Token Refreshed", "User", str(employee.id))
+        await db.commit()
+        
         return {
             "access_token": access_token,
             "refresh_token": new_refresh_token,
@@ -139,6 +150,13 @@ async def forgot_password(body: ForgotPasswordRequest, db: AsyncSession = Depend
     TODO: generate reset token, store expiry, send email via SMTP/SendGrid.
     """
     # Always return 202 to avoid email enumeration
+    stmt = select(Employee).where(Employee.email == body.email)
+    result = await db.execute(stmt)
+    employee = result.scalar_one_or_none()
+    if employee:
+        log_activity(db, employee.id, "Password Reset Requested", "User", str(employee.id))
+        await db.commit()
+        
     return {"detail": "If the email exists, a reset link has been sent."}
 
 

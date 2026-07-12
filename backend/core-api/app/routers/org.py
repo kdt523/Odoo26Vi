@@ -100,6 +100,8 @@ async def create_department(body: DepartmentCreate, db: AsyncSession = Depends(g
         status=body.status
     )
     db.add(dept)
+    await db.flush()
+    log_activity(db, current_user.id, "Department Created", "Department", str(dept.id))
     await db.commit()
     await db.refresh(dept)
     return dept
@@ -209,6 +211,8 @@ async def create_category(body: AssetCategoryCreate, db: AsyncSession = Depends(
         is_active=True
     )
     db.add(cat)
+    await db.flush()
+    log_activity(db, current_user.id, "Asset Category Created", "AssetCategory", str(cat.id))
     await db.commit()
     await db.refresh(cat)
     return cat
@@ -293,7 +297,8 @@ async def list_employees(
 
 @router.post("/employees", response_model=EmployeeOut, status_code=201,
              dependencies=[Depends(require_admin)])
-async def create_employee(body: EmployeeCreate, db: AsyncSession = Depends(get_db)):
+async def create_employee(body: EmployeeCreate, db: AsyncSession = Depends(get_db), current_user=Depends(require_admin)):
+    log_activity(db, current_user.id, "Employee Created", "Employee")
     # TODO: admin-created employee (role can be set by admin)
     raise HTTPException(status_code=status.HTTP_501_NOT_IMPLEMENTED, detail="Not implemented")
 
@@ -308,7 +313,7 @@ async def get_employee(employee_id: uuid.UUID, db: AsyncSession = Depends(get_db
 @router.put("/employees/{employee_id}", response_model=EmployeeOut,
             dependencies=[Depends(require_admin)])
 async def update_employee(employee_id: uuid.UUID, body: EmployeeUpdate,
-                           db: AsyncSession = Depends(get_db)):
+                           db: AsyncSession = Depends(get_db), current_user=Depends(require_admin)):
     stmt = select(Employee).where(Employee.id == employee_id)
     result = await db.execute(stmt)
     employee = result.scalar_one_or_none()
@@ -322,6 +327,7 @@ async def update_employee(employee_id: uuid.UUID, body: EmployeeUpdate,
     if body.status is not None:
         employee.status = body.status
         
+    log_activity(db, current_user.id, "Employee Updated", "Employee", str(employee_id))
     await db.commit()
     await db.refresh(employee)
     return employee
@@ -349,17 +355,14 @@ async def promote_employee(employee_id: uuid.UUID, body: RolePromotionRequest,
     employee.role = body.role
     
     # Log the promotion
-    log_entry = ActivityLog(
-        user_id=current_user.id,
-        action="role_promoted",
-        entity_type="Employee",
-        entity_id=str(employee.id),
-        details={
-            "old_role": old_role,
-            "new_role": employee.role
-        }
+    log_activity(
+        db,
+        current_user.id,
+        "role_promoted",
+        "Employee",
+        str(employee.id),
+        details={"old_role": old_role, "new_role": employee.role}
     )
-    db.add(log_entry)
     
     await db.commit()
     await db.refresh(employee)
