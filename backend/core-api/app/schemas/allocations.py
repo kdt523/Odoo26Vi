@@ -31,6 +31,7 @@ class AllocationOut(BaseModel):
     actual_return_date: Optional[date] = None
     return_condition_notes: Optional[str] = None
     status: str
+    is_overdue: bool = False
 
     model_config = {"from_attributes": True}
 

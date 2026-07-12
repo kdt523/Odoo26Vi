@@ -10,7 +10,9 @@ Endpoints:
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from app.models.employee import Employee
 
 from app.core.security import (
     create_access_token,
@@ -39,28 +41,73 @@ async def signup(body: SignupRequest, db: AsyncSession = Depends(get_db)):
     Register a new user.
     Role is hardcoded to 'Employee' — no client-supplied role accepted.
     """
-    # TODO: check if email already exists → 409
-    # TODO: create Employee(role="Employee", password_hash=hash_password(body.password))
-    # TODO: flush & return created employee
-    raise HTTPException(status_code=status.HTTP_501_NOT_IMPLEMENTED, detail="Not implemented")
+    # Check if email already exists
+    stmt = select(Employee).where(Employee.email == body.email)
+    result = await db.execute(stmt)
+    if result.scalar_one_or_none():
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already registered")
+        
+    employee = Employee(
+        name=body.name,
+        email=body.email,
+        password_hash=hash_password(body.password),
+        role="Employee",
+        department_id=body.department_id,
+        status="Active"
+    )
+    db.add(employee)
+    await db.commit()
+    await db.refresh(employee)
+    return employee
 
 
 @router.post("/login", response_model=TokenResponse)
 async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)):
     """Authenticate credentials and return access + refresh JWT pair."""
-    # TODO: fetch employee by email
-    # TODO: verify_password(body.password, employee.password_hash) → 401 on failure
-    # TODO: create_access_token(str(employee.id), employee.role)
-    # TODO: create_refresh_token(str(employee.id))
-    raise HTTPException(status_code=status.HTTP_501_NOT_IMPLEMENTED, detail="Not implemented")
+    stmt = select(Employee).where(Employee.email == body.email)
+    result = await db.execute(stmt)
+    employee = result.scalar_one_or_none()
+    
+    if not employee or not verify_password(body.password, employee.password_hash):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+        
+    access_token = create_access_token(subject=str(employee.id), role=employee.role)
+    refresh_token = create_refresh_token(subject=str(employee.id))
+    
+    return {
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "token_type": "bearer"
+    }
 
 
 @router.post("/refresh", response_model=TokenResponse)
 async def refresh_token(body: RefreshRequest):
     """Issue a new access token given a valid refresh token."""
-    # TODO: decode_token(body.refresh_token), verify type == 'refresh'
-    # TODO: issue new access_token + refresh_token
-    raise HTTPException(status_code=status.HTTP_501_NOT_IMPLEMENTED, detail="Not implemented")
+    try:
+        payload = decode_token(body.refresh_token)
+        if payload.get("type") != "refresh":
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token type")
+            
+        subject = payload.get("sub")
+        # In a real app we'd fetch the user to get their latest role.
+        # For MVP, we'll extract it by fetching the DB.
+        stmt = select(Employee).where(Employee.id == subject)
+        result = await db.execute(stmt)
+        employee = result.scalar_one_or_none()
+        if not employee:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+            
+        access_token = create_access_token(subject=str(employee.id), role=employee.role)
+        new_refresh_token = create_refresh_token(subject=str(employee.id))
+        
+        return {
+            "access_token": access_token,
+            "refresh_token": new_refresh_token,
+            "token_type": "bearer"
+        }
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token")
 
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
@@ -86,5 +133,4 @@ async def forgot_password(body: ForgotPasswordRequest, db: AsyncSession = Depend
 @router.get("/me", response_model=EmployeeOut)
 async def get_me(current_user=Depends(get_current_user)):
     """Return the current authenticated user's profile."""
-    # TODO: return ORM employee object once get_current_user is wired
-    raise HTTPException(status_code=status.HTTP_501_NOT_IMPLEMENTED, detail="Not implemented")
+    return current_user
