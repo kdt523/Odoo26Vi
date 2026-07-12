@@ -19,26 +19,29 @@ export default function ReportsPage() {
   const [maintenanceData, setMaintenanceData] = useState([]);
   const [allocationData, setAllocationData] = useState([]);
   const [heatmapData, setHeatmapData] = useState([]);
+  const [maintRetirementData, setMaintRetirementData] = useState(null);
+
+  // Maintenance/Retirement table sort
+  const [sortConfig, setSortConfig] = useState({ key: null, dir: 'asc' });
 
   useEffect(() => {
-    // This is where you would fetch data from the backend.
-    // For now, we simulate fetching empty or placeholder data
-    // to prove the empty state UI works as required by the acceptance criteria.
     const fetchData = async () => {
       try {
         const query = `?from_date=${fromDate}&to_date=${toDate}`;
         
-        const [utilRes, maintRes, allocRes, heatRes] = await Promise.all([
-          fetch(`/api/v1/reports/asset-utilization${query}`),
-          fetch(`/api/v1/reports/maintenance-frequency${query}`),
-          fetch(`/api/v1/reports/allocation-summary${query}`),
-          fetch(`/api/v1/reports/booking-heatmap${query}`)
+        const [utilRes, maintRes, allocRes, heatRes, maintRetRes] = await Promise.all([
+          fetch(`/api/reports/asset-utilization${query}`),
+          fetch(`/api/reports/maintenance-frequency${query}`),
+          fetch(`/api/reports/allocation-summary${query}`),
+          fetch(`/api/reports/booking-heatmap${query}`),
+          fetch(`/api/reports/maintenance-and-retirement-due`),
         ]);
         
-        setUtilizationData(await utilRes.json());
-        setMaintenanceData(await maintRes.json());
-        setAllocationData(await allocRes.json());
-        setHeatmapData(await heatRes.json());
+        if (utilRes.ok) setUtilizationData(await utilRes.json());
+        if (maintRes.ok) setMaintenanceData(await maintRes.json());
+        if (allocRes.ok) setAllocationData(await allocRes.json());
+        if (heatRes.ok) setHeatmapData(await heatRes.json());
+        if (maintRetRes.ok) setMaintRetirementData(await maintRetRes.json());
         
       } catch (err) {
         console.error("Failed to fetch reports:", err);
@@ -48,22 +51,77 @@ export default function ReportsPage() {
   }, [fromDate, toDate]);
 
   const handleExport = (type) => {
-    const url = `/api/v1/reports/export?report_type=${type}&from_date=${fromDate}&to_date=${toDate}`;
-    window.open(url, '_blank');
+    window.open(`/api/reports/export?report_type=${type}`, '_blank');
   };
 
   const EmptyState = () => (
-    <div className="empty-state" style={{ height: '300px', display: 'flex', alignItems: 'center', justifyContent: 'center', marginTop: '1rem' }}>
+    <div className="empty-state" style={{ height: '200px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b' }}>
       <p>No data available for this period</p>
     </div>
   );
 
   const COLORS = ['#6366f1', '#34d399', '#fbbf24', '#f87171', '#a78bfa', '#38bdf8'];
 
+  // ── Sorting helper for maintenance/retirement tables ──
+  const sortedRows = (rows, key) => {
+    if (!rows) return [];
+    if (!sortConfig.key || sortConfig.key !== key) return rows;
+    return [...rows].sort((a, b) => {
+      const av = a[sortConfig.key] ?? '';
+      const bv = b[sortConfig.key] ?? '';
+      return sortConfig.dir === 'asc' ? (av < bv ? -1 : 1) : (av > bv ? -1 : 1);
+    });
+  };
+  const handleSort = (key) => {
+    setSortConfig(prev =>
+      prev.key === key ? { key, dir: prev.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'asc' }
+    );
+  };
+  const SortTh = ({ col, label }) => (
+    <th onClick={() => handleSort(col)} style={{ cursor: 'pointer', userSelect: 'none' }}>
+      {label} {sortConfig.key === col ? (sortConfig.dir === 'asc' ? '↑' : '↓') : ''}
+    </th>
+  );
+
+  // ── Maintenance/Retirement row renderer ──
+  const MaintRetRow = ({ row, dateKey, daysKey }) => {
+    const days = row[daysKey];
+    const overdue = days !== null && days < 0;
+    return (
+      <tr style={{ background: overdue ? 'rgba(248,113,113,0.08)' : undefined }}>
+        <td style={{ fontFamily: 'monospace', color: '#94a3b8' }}>{row.asset_tag}</td>
+        <td>{row.name}</td>
+        <td>{row[dateKey] || '—'}</td>
+        <td>
+          {days === null ? '—' : (
+            <span style={{
+              fontWeight: 600,
+              color: overdue ? '#f87171' : days <= 7 ? '#f59e0b' : '#34d399',
+            }}>
+              {overdue ? `${Math.abs(days)}d overdue` : `${days}d remaining`}
+            </span>
+          )}
+        </td>
+        <td>
+          <span style={{
+            padding: '2px 8px', borderRadius: '12px', fontSize: '0.78rem', fontWeight: 600,
+            background: row.status === 'Available' ? '#10b98120' : '#f59e0b20',
+            color: row.status === 'Available' ? '#10b981' : '#f59e0b',
+          }}>
+            {row.status}
+          </span>
+        </td>
+      </tr>
+    );
+  };
+
   return (
     <div className="page">
-      <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap' }}>
-        <h1>Reports & Analytics</h1>
+      <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem' }}>
+        <div>
+          <h1 style={{ margin: 0 }}>Reports & Analytics</h1>
+          <p style={{ color: '#94a3b8', margin: '0.25rem 0 0', fontSize: '0.9rem' }}>Asset intelligence and operational insights</p>
+        </div>
         
         <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
           <div className="form-group" style={{ flexDirection: 'row', alignItems: 'center', gap: '0.5rem' }}>
@@ -75,6 +133,89 @@ export default function ReportsPage() {
             <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} />
           </div>
         </div>
+      </div>
+
+      {/* ── Maintenance & Retirement Due ─────────────────────────────────── */}
+      <div className="report-card" style={{ marginBottom: '1.5rem', borderLeft: '4px solid #f59e0b' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1.5rem' }}>
+          <div>
+            <h3 style={{ margin: 0 }}>⚙ Maintenance & Retirement Due</h3>
+            <p style={{ color: '#94a3b8', margin: '0.25rem 0 0', fontSize: '0.85rem' }}>
+              Due within 30 days for maintenance · Nearing retirement within 90 days
+            </p>
+          </div>
+          <button className="btn btn-secondary" onClick={() => handleExport('maintenance-retirement')}>⬇ CSV</button>
+        </div>
+
+        {!maintRetirementData ? (
+          <EmptyState />
+        ) : (
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }}>
+            {/* Due for Maintenance */}
+            <div>
+              <h4 style={{ color: '#f59e0b', margin: '0 0 0.75rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                🔧 Due for Maintenance
+                <span style={{ background: '#f59e0b20', color: '#f59e0b', borderRadius: '12px', padding: '1px 8px', fontSize: '0.78rem', fontWeight: 700 }}>
+                  {maintRetirementData.due_for_maintenance?.length || 0}
+                </span>
+              </h4>
+              {maintRetirementData.due_for_maintenance?.length === 0 ? (
+                <p style={{ color: '#64748b', fontSize: '0.9rem' }}>✓ No assets due for maintenance</p>
+              ) : (
+                <div style={{ overflowX: 'auto' }}>
+                  <table className="table" style={{ fontSize: '0.85rem' }}>
+                    <thead>
+                      <tr>
+                        <SortTh col="asset_tag" label="Tag" />
+                        <SortTh col="name" label="Name" />
+                        <SortTh col="next_maintenance_due_date" label="Due Date" />
+                        <SortTh col="days_until_maintenance" label="Days" />
+                        <th>Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {sortedRows(maintRetirementData.due_for_maintenance, 'days_until_maintenance').map((row, i) => (
+                        <MaintRetRow key={i} row={row} dateKey="next_maintenance_due_date" daysKey="days_until_maintenance" />
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            {/* Nearing Retirement */}
+            <div>
+              <h4 style={{ color: '#f87171', margin: '0 0 0.75rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                🕐 Nearing Retirement
+                <span style={{ background: '#f8717120', color: '#f87171', borderRadius: '12px', padding: '1px 8px', fontSize: '0.78rem', fontWeight: 700 }}>
+                  {maintRetirementData.nearing_retirement?.length || 0}
+                </span>
+              </h4>
+              {maintRetirementData.nearing_retirement?.length === 0 ? (
+                <p style={{ color: '#64748b', fontSize: '0.9rem' }}>✓ No assets nearing retirement</p>
+              ) : (
+                <div style={{ overflowX: 'auto' }}>
+                  <table className="table" style={{ fontSize: '0.85rem' }}>
+                    <thead>
+                      <tr>
+                        <SortTh col="asset_tag" label="Tag" />
+                        <SortTh col="name" label="Name" />
+                        <SortTh col="expected_retirement_date" label="Retire Date" />
+                        <SortTh col="days_until_retirement" label="Days" />
+                        <th>Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {sortedRows(maintRetirementData.nearing_retirement, 'days_until_retirement').map((row, i) => (
+                        <MaintRetRow key={i} row={row} dateKey="expected_retirement_date" daysKey="days_until_retirement" />
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="report-grid">

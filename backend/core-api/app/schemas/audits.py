@@ -51,8 +51,16 @@ class AuditItemOut(BaseModel):
     asset_id: UUID
     result: Optional[str] = None
     notes: Optional[str] = None
+    resolved: bool = False
+    resolved_action: Optional[str] = None
+    resolved_notes: Optional[str] = None
 
     model_config = {"from_attributes": True}
+
+
+class AuditItemResolve(BaseModel):
+    action: str = Field(..., pattern="^(confirm_lost|confirm_damaged_to_maintenance|override_verified)$")
+    notes: Optional[str] = None  # Required for override_verified, optional otherwise
 
 
 # ── Detailed Cycle ─────────────────────────────────────────────────────────

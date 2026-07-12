@@ -42,6 +42,8 @@ export default function AssetsPage() {
     location: '',
     is_bookable: false,
     photo_ref: '',
+    next_maintenance_due_date: '',
+    expected_retirement_date: '',
   });
 
   const ASSET_STATUSES = [
@@ -119,13 +121,16 @@ export default function AssetsPage() {
       if (!payload.acquisition_cost) delete payload.acquisition_cost;
       if (!payload.location) delete payload.location;
       if (!payload.photo_ref) delete payload.photo_ref;
+      if (!payload.next_maintenance_due_date) delete payload.next_maintenance_due_date;
+      if (!payload.expected_retirement_date) delete payload.expected_retirement_date;
 
       await coreApi.post('/assets/', payload);
       setIsRegistering(false);
       // reset form
       setFormData({
         name: '', category_id: '', serial_number: '', acquisition_date: '',
-        acquisition_cost: '', condition: 'New', location: '', is_bookable: false, photo_ref: ''
+        acquisition_cost: '', condition: 'New', location: '', is_bookable: false, photo_ref: '',
+        next_maintenance_due_date: '', expected_retirement_date: ''
       });
       fetchAssets();
     } catch (err) {
@@ -222,6 +227,14 @@ export default function AssetsPage() {
             <div style={{ display: 'flex', alignItems: 'center' }}>
               <input type="checkbox" id="bookable" checked={formData.is_bookable} onChange={e => setFormData({...formData, is_bookable: e.target.checked})} />
               <label htmlFor="bookable" style={{ marginLeft: '8px' }}>Is Bookable?</label>
+            </div>
+            <div>
+              <label>Next Maintenance Due</label>
+              <input type="date" value={formData.next_maintenance_due_date} onChange={e => setFormData({...formData, next_maintenance_due_date: e.target.value})} className="filter-input" />
+            </div>
+            <div>
+              <label>Expected Retirement</label>
+              <input type="date" value={formData.expected_retirement_date} onChange={e => setFormData({...formData, expected_retirement_date: e.target.value})} className="filter-input" />
             </div>
             <div style={{ gridColumn: '1 / -1' }}>
               <label>Photo URL / Ref</label>
