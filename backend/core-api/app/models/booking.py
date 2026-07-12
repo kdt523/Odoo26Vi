@@ -9,10 +9,10 @@ TODO (bookings router): enforce overlap rule —
 """
 
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
-from sqlalchemy import DateTime, ForeignKey, Enum as SAEnum
+from sqlalchemy import DateTime, ForeignKey, Boolean
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
@@ -50,17 +50,20 @@ class Booking(Base):
     start_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     end_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
-    status: Mapped[str] = mapped_column(
-        SAEnum(
-            "Upcoming",
-            "Ongoing",
-            "Completed",
-            "Cancelled",
-            name="booking_status_enum",
-        ),
-        nullable=False,
-        default="Upcoming",
-    )
+    is_cancelled: Mapped[bool] = mapped_column(Boolean, default=False)
+
+    @property
+    def status(self) -> str:
+        if self.is_cancelled:
+            return "Cancelled"
+        
+        now = datetime.now(timezone.utc)
+        if now < self.start_time:
+            return "Upcoming"
+        elif self.start_time <= now < self.end_time:
+            return "Ongoing"
+        else:
+            return "Completed"
 
     reminder_sent_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True

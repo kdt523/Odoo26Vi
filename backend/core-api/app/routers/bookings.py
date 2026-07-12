@@ -15,7 +15,7 @@ Endpoints:
 """
 
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -54,7 +54,7 @@ async def _check_overlap(
     """
     stmt = select(Booking).where(
         Booking.asset_id == asset_id,
-        Booking.status.in_(["Upcoming", "Ongoing"]),
+        Booking.is_cancelled == False,
         Booking.start_time < end_time,
         Booking.end_time > start_time,
     )
@@ -101,7 +101,25 @@ async def list_bookings(
     if department_id:
         stmt = stmt.where(Booking.department_id == department_id)
     if status_filter:
-        stmt = stmt.where(Booking.status == status_filter)
+        now = datetime.now(timezone.utc)
+        if status_filter == "Upcoming":
+            stmt = stmt.where(
+                Booking.is_cancelled == False,
+                Booking.start_time > now
+            )
+        elif status_filter == "Ongoing":
+            stmt = stmt.where(
+                Booking.is_cancelled == False,
+                Booking.start_time <= now,
+                Booking.end_time > now
+            )
+        elif status_filter == "Completed":
+            stmt = stmt.where(
+                Booking.is_cancelled == False,
+                Booking.end_time <= now
+            )
+        elif status_filter == "Cancelled":
+            stmt = stmt.where(Booking.is_cancelled == True)
 
     stmt = stmt.order_by(Booking.start_time.desc())
     result = await db.execute(stmt)
@@ -140,7 +158,6 @@ async def create_booking(
         department_id=body.department_id,
         start_time=body.start_time,
         end_time=body.end_time,
-        status="Upcoming",
     )
     db.add(booking)
 
@@ -260,7 +277,7 @@ async def cancel_booking(
     asset = await db.get(Asset, booking.asset_id)
     asset_name = asset.name if asset else "the asset"
 
-    booking.status = "Cancelled"
+    booking.is_cancelled = True
 
     # ── Notification: BookingCancelled ─────────────────────────────────────
     await create_notification(
