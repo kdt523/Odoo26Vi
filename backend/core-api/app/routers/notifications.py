@@ -113,3 +113,47 @@ async def mark_notification_read(
         await db.commit()
 
     return NotificationOut.model_validate(notif)
+
+
+# ── POST /notifications/read-all ──────────────────────────────────────────
+
+@router.post(
+    "/read-all",
+    summary="Mark all unread notifications as read",
+)
+async def mark_all_notifications_read(
+    db: AsyncSession = Depends(get_db),
+    current_user: Employee = Depends(_resolve_user),
+):
+    """
+    Marks all of the authenticated user's unread notifications as read.
+    """
+    stmt = (
+        select(Notification)
+        .where(
+            Notification.user_id == current_user.id,
+            Notification.is_read.is_(False),
+        )
+    )
+    result = await db.execute(stmt)
+    unread_notifs = result.scalars().all()
+
+    if not unread_notifs:
+        return {"detail": "No unread notifications"}
+
+    for notif in unread_notifs:
+        notif.is_read = True
+
+    log_activity(
+        db,
+        current_user.id,
+        "notifications_read_all",
+        "Notification",
+        "multiple",
+        details={"count": len(unread_notifs)},
+    )
+    
+    await db.commit()
+
+    return {"detail": f"Marked {len(unread_notifs)} notifications as read"}
+

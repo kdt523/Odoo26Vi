@@ -5,7 +5,7 @@ import { useNotification } from '../context/NotificationContext';
 
 export default function NotificationsPage() {
   const { role } = useAuth();
-  const { decrementUnreadCount, fetchUnreadCount } = useNotification();
+  const { decrementUnreadCount, fetchUnreadCount, resetUnreadCount } = useNotification();
   const [activeTab, setActiveTab] = useState('notifications');
 
   const isAdminOrManager = role === 'Admin' || role === 'AssetManager';
@@ -25,6 +25,12 @@ export default function NotificationsPage() {
   const [logFromDate, setLogFromDate] = useState('');
   const [logToDate, setLogToDate] = useState('');
   const [logEntityType, setLogEntityType] = useState('');
+  const [appliedFilters, setAppliedFilters] = useState({
+    userId: '',
+    fromDate: '',
+    toDate: '',
+    entityType: ''
+  });
   const [page, setPage] = useState(1);
   const pageSize = 50;
 
@@ -73,11 +79,12 @@ export default function NotificationsPage() {
   };
 
   const handleMarkAllRead = async () => {
-    // Scaffold: no backend endpoint for mark all read, but we can iterate or mock it.
-    // For now, let's just mark the ones we have in state one by one.
-    const unread = notifications.filter(n => !n.is_read);
-    for (const n of unread) {
-      await handleMarkAsRead(n.id, false);
+    try {
+      await coreApi.post('/notifications/read-all');
+      setNotifications(prev => prev.map(n => ({ ...n, is_read: true })));
+      resetUnreadCount();
+    } catch (err) {
+      console.error('Failed to mark all as read', err);
     }
   };
 
@@ -86,10 +93,10 @@ export default function NotificationsPage() {
     setLoadingLogs(true);
     try {
       const params = { page, page_size: pageSize };
-      if (logUserId) params.user_id = logUserId;
-      if (logFromDate) params.from_date = new Date(logFromDate).toISOString();
-      if (logToDate) params.to_date = new Date(logToDate).toISOString();
-      if (logEntityType) params.entity_type = logEntityType;
+      if (appliedFilters.userId) params.user_id = appliedFilters.userId;
+      if (appliedFilters.fromDate) params.from_date = new Date(appliedFilters.fromDate).toISOString();
+      if (appliedFilters.toDate) params.to_date = new Date(appliedFilters.toDate).toISOString();
+      if (appliedFilters.entityType) params.entity_type = appliedFilters.entityType;
 
       const { data } = await coreApi.get('/activity-log', { params });
       setActivityLogs(data.items || []);
@@ -99,7 +106,7 @@ export default function NotificationsPage() {
     } finally {
       setLoadingLogs(false);
     }
-  }, [page, logUserId, logFromDate, logToDate, logEntityType]);
+  }, [page, appliedFilters]);
 
   useEffect(() => {
     if (activeTab === 'activity_log' && isAdminOrManager) {
@@ -232,7 +239,15 @@ export default function NotificationsPage() {
               />
             </div>
             <div className="form-group" style={{ display: 'flex', alignItems: 'flex-end' }}>
-              <button className="btn btn-primary" onClick={() => setPage(1)}>Apply Filters</button>
+              <button className="btn btn-primary" onClick={() => {
+                setAppliedFilters({
+                  userId: logUserId,
+                  fromDate: logFromDate,
+                  toDate: logToDate,
+                  entityType: logEntityType
+                });
+                setPage(1);
+              }}>Apply Filters</button>
             </div>
           </div>
 
