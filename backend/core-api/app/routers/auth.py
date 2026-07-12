@@ -14,6 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.employee import Employee
 from app.models.revoked_token import RevokedToken
+from app.services.activity_log import log_activity
 
 from app.core.security import (
     create_access_token,
