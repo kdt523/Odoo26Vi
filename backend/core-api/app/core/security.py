@@ -10,8 +10,8 @@ from typing import Optional
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+import bcrypt
 from jose import JWTError, jwt
-from passlib.context import CryptContext
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -20,17 +20,14 @@ from app.db import get_db
 from app.models.employee import Employee
 
 # ── Password hashing ───────────────────────────────────────────────────────
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
-
 def hash_password(plain: str) -> str:
-    # TODO: called during signup — wire to Employee creation
-    return pwd_context.hash(plain)
+    # Hash password with bcrypt native directly to avoid passlib incompatibilities
+    salt = bcrypt.gensalt()
+    return bcrypt.hashpw(plain.encode('utf-8'), salt).decode('utf-8')
 
 
 def verify_password(plain: str, hashed: str) -> bool:
-    # TODO: called during login — wire to Employee lookup
-    return pwd_context.verify(plain, hashed)
+    return bcrypt.checkpw(plain.encode('utf-8'), hashed.encode('utf-8'))
 
 
 # ── JWT ────────────────────────────────────────────────────────────────────

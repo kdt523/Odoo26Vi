@@ -52,7 +52,6 @@ async def signup(body: SignupRequest, db: AsyncSession = Depends(get_db)):
         email=body.email,
         password_hash=hash_password(body.password),
         role="Employee",
-        department_id=body.department_id,
         status="Active"
     )
     db.add(employee)
