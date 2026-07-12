@@ -7,7 +7,10 @@ import { useState, useEffect } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { coreApi } from '../api/client';
 
-export default function AssetsPage() {
+import { useAuth } from '../context/AuthContext';
+
+export default function AssetsPage({ endpoint: forcedEndpoint, title: forcedTitle }) {
+  const { role } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   
   // URL bound filters
@@ -25,6 +28,7 @@ export default function AssetsPage() {
   const [departments, setDepartments] = useState([]);
   const [isRegistering, setIsRegistering] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [scope, setScope] = useState(role === 'DepartmentHead' ? 'department' : 'org');
 
   // Form state
   const [formData, setFormData] = useState({
@@ -54,7 +58,7 @@ export default function AssetsPage() {
 
   useEffect(() => {
     fetchAssets();
-  }, [searchParams]);
+  }, [searchParams, scope, forcedEndpoint]);
 
   const fetchAssets = async () => {
     setLoading(true);
@@ -69,7 +73,12 @@ export default function AssetsPage() {
       params.append('page', page);
       params.append('page_size', 20);
 
-      const res = await coreApi.get(`/assets?${params.toString()}`);
+      let endpointToCall = forcedEndpoint;
+      if (!endpointToCall) {
+        endpointToCall = scope === 'department' ? '/assets/department' : '/assets';
+      }
+
+      const res = await coreApi.get(`${endpointToCall}?${params.toString()}`);
       setAssets(res.data.items);
       setTotal(res.data.total);
     } catch (err) {
@@ -118,10 +127,28 @@ export default function AssetsPage() {
   return (
     <div className="page">
       <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <h1>Assets</h1>
-        <button id="btn-register-asset" className="btn btn-primary" onClick={() => setIsRegistering(!isRegistering)}>
-          {isRegistering ? 'Cancel' : '+ Register Asset'}
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+          <h1>{forcedTitle || 'Assets'}</h1>
+          {!forcedEndpoint && role === 'DepartmentHead' && (
+            <div className="scope-toggle" style={{ display: 'flex', backgroundColor: '#f0f0f0', borderRadius: '4px', overflow: 'hidden' }}>
+              <button 
+                onClick={() => setScope('department')} 
+                style={{ padding: '6px 12px', border: 'none', background: scope === 'department' ? '#007bff' : 'transparent', color: scope === 'department' ? 'white' : 'inherit', cursor: 'pointer' }}>
+                My Department
+              </button>
+              <button 
+                onClick={() => setScope('org')} 
+                style={{ padding: '6px 12px', border: 'none', background: scope === 'org' ? '#007bff' : 'transparent', color: scope === 'org' ? 'white' : 'inherit', cursor: 'pointer' }}>
+                Org-wide
+              </button>
+            </div>
+          )}
+        </div>
+        {!forcedEndpoint && ['Admin', 'AssetManager'].includes(role) && (
+          <button id="btn-register-asset" className="btn btn-primary" onClick={() => setIsRegistering(!isRegistering)}>
+            {isRegistering ? 'Cancel' : '+ Register Asset'}
+          </button>
+        )}
       </div>
 
       {isRegistering && (

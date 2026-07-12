@@ -5,6 +5,7 @@
  * KPI cards + overdue returns section.
  * All data is placeholder — wire to core-api + reports-api in a later pass.
  */
+import { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { Link } from 'react-router-dom';
 
@@ -26,15 +27,33 @@ const RECENT_ACTIVITY = [
 
 export default function DashboardPage() {
   const { currentUser, role } = useAuth();
+  const [scope, setScope] = useState(role === 'DepartmentHead' ? 'department' : 'org');
 
   return (
     <div className="page">
-      <div className="page-header">
-        <h1>Dashboard</h1>
-        <p className="page-subtitle">
-          Welcome back{currentUser?.name ? `, ${currentUser.name}` : ''}
-          {role ? ` · ${role}` : ''}
-        </p>
+      <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div>
+          <h1>Dashboard</h1>
+          <p className="page-subtitle">
+            Welcome back{currentUser?.name ? `, ${currentUser.name}` : ''}
+            {role ? ` · ${role}` : ''}
+          </p>
+        </div>
+        
+        {role === 'DepartmentHead' && (
+          <div className="scope-toggle" style={{ display: 'flex', backgroundColor: '#f0f0f0', borderRadius: '4px', overflow: 'hidden' }}>
+            <button 
+              onClick={() => setScope('department')} 
+              style={{ padding: '6px 12px', border: 'none', background: scope === 'department' ? '#007bff' : 'transparent', color: scope === 'department' ? 'white' : 'inherit', cursor: 'pointer' }}>
+              My Department
+            </button>
+            <button 
+              onClick={() => setScope('org')} 
+              style={{ padding: '6px 12px', border: 'none', background: scope === 'org' ? '#007bff' : 'transparent', color: scope === 'org' ? 'white' : 'inherit', cursor: 'pointer' }}>
+              Org-wide
+            </button>
+          </div>
+        )}
       </div>
 
       {/* ── KPI Cards ── */}
