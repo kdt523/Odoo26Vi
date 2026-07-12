@@ -9,7 +9,7 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import DateTime, ForeignKey, Text, Enum as SAEnum
+from sqlalchemy import Boolean, DateTime, ForeignKey, Text, Enum as SAEnum
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
@@ -44,6 +44,20 @@ class AuditItem(Base):
     )
 
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    # ── Resolution fields (set by Asset Manager via resolve endpoint) ───────────────
+    resolved: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    resolved_action: Mapped[Optional[str]] = mapped_column(
+        SAEnum(
+            "confirm_lost",
+            "confirm_damaged_to_maintenance",
+            "override_verified",
+            name="audit_resolution_enum",
+            create_type=True,
+        ),
+        nullable=True,
+    )
+    resolved_notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False

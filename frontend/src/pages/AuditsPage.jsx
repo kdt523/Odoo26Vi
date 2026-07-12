@@ -30,6 +30,12 @@ export default function AuditsPage() {
   });
   const [formError, setFormError] = useState('');
 
+  // Resolution modal state
+  const [isResolveOpen, setIsResolveOpen] = useState(false);
+  const [resolveTarget, setResolveTarget] = useState(null); // { asset_id, asset_name }
+  const [resolveForm, setResolveForm] = useState({ action: '', notes: '' });
+  const [resolveError, setResolveError] = useState('');
+
   // ── Initialization ──
   useEffect(() => {
     fetchCycles();
@@ -109,7 +115,7 @@ export default function AuditsPage() {
   };
 
   const handleCloseCycle = async () => {
-    if (!window.confirm("Are you sure you want to close this cycle? Assets marked Missing will be updated to Lost.")) return;
+    if (!window.confirm("Are you sure you want to close this cycle? Missing assets will be marked as Lost.")) return;
     try {
       const { data } = await coreApi.post(`/audits/${selectedCycleDetails.cycle.id}/close`);
       setIsDetailOpen(false);
@@ -118,6 +124,34 @@ export default function AuditsPage() {
       fetchCycles();
     } catch (err) {
       alert("Failed to close cycle: " + (err.response?.data?.detail || err.message));
+    }
+  };
+
+  const openResolveModal = (assetId, assetName) => {
+    setResolveTarget({ asset_id: assetId, asset_name: assetName });
+    setResolveForm({ action: '', notes: '' });
+    setResolveError('');
+    setIsResolveOpen(true);
+  };
+
+  const handleResolveSubmit = async (e) => {
+    e.preventDefault();
+    setResolveError('');
+    if (!resolveForm.action) return setResolveError('Select an action.');
+    if (resolveForm.action === 'override_verified' && !resolveForm.notes) {
+      return setResolveError('A reason is required for Override Verified.');
+    }
+    try {
+      const cycleId = selectedCycleDetails.cycle.id;
+      await coreApi.post(
+        `/audits/${cycleId}/items/${resolveTarget.asset_id}/resolve`,
+        { action: resolveForm.action, notes: resolveForm.notes || null }
+      );
+      setIsResolveOpen(false);
+      // Refresh the detail view so the resolved badge appears immediately
+      await fetchCycleDetail(cycleId);
+    } catch (err) {
+      setResolveError(err.response?.data?.detail || err.message);
     }
   };
 
@@ -308,34 +342,54 @@ export default function AuditsPage() {
                   {selectedCycleDetails.assets.map(({ asset, audit_item }) => {
                     const isAssignedAuditor = selectedCycleDetails.auditor_ids.includes(currentUser?.id);
                     const canEdit = isAssignedAuditor && selectedCycleDetails.cycle.status === 'Active';
+                    const isFlagged = audit_item && ['Missing', 'Damaged'].includes(audit_item.result);
+                    const isResolved = audit_item?.resolved;
                     
                     return (
                       <tr key={asset.id}>
                         <td>{asset.name} ({asset.asset_tag})</td>
                         <td>
                           {audit_item ? (
-                            <span className="badge" style={{
-                              backgroundColor: audit_item.result === 'Verified' ? '#34d399' : (audit_item.result === 'Missing' ? '#f87171' : '#f59e0b'),
-                              color: 'white'
-                            }}>
-                              {audit_item.result}
-                            </span>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                              <span className="badge" style={{
+                                backgroundColor: audit_item.result === 'Verified' ? '#34d399' : (audit_item.result === 'Missing' ? '#f87171' : '#f59e0b'),
+                                color: 'white'
+                              }}>
+                                {audit_item.result}
+                              </span>
+                              {isResolved && (
+                                <span style={{ background: '#10b98120', color: '#10b981', padding: '2px 8px', borderRadius: '12px', fontSize: '0.75rem', fontWeight: 600 }}>
+                                  ✓ Resolved
+                                </span>
+                              )}
+                            </div>
                           ) : (
                             <span style={{ color: '#888' }}>Pending</span>
                           )}
                         </td>
                         <td>
-                          {canEdit ? (
-                            <div style={{ display: 'flex', gap: '4px' }}>
-                              <button className="btn btn-secondary" style={{ padding: '4px 8px', fontSize: '0.75rem', borderColor: '#34d399', color: '#34d399' }} onClick={() => handleMarkItem(asset.id, 'Verified')}>Verify</button>
-                              <button className="btn btn-secondary" style={{ padding: '4px 8px', fontSize: '0.75rem', borderColor: '#f87171', color: '#f87171' }} onClick={() => handleMarkItem(asset.id, 'Missing')}>Missing</button>
-                              <button className="btn btn-secondary" style={{ padding: '4px 8px', fontSize: '0.75rem', borderColor: '#f59e0b', color: '#f59e0b' }} onClick={() => handleMarkItem(asset.id, 'Damaged')}>Damaged</button>
-                            </div>
-                          ) : (
-                            <span style={{ fontSize: '0.85rem', color: '#888' }}>
-                              {!isAssignedAuditor && selectedCycleDetails.cycle.status !== 'Closed' ? 'Read-only' : ''}
-                            </span>
-                          )}
+                          <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                            {canEdit && (
+                              <>
+                                <button className="btn btn-secondary" style={{ padding: '4px 8px', fontSize: '0.75rem', borderColor: '#34d399', color: '#34d399' }} onClick={() => handleMarkItem(asset.id, 'Verified')}>Verify</button>
+                                <button className="btn btn-secondary" style={{ padding: '4px 8px', fontSize: '0.75rem', borderColor: '#f87171', color: '#f87171' }} onClick={() => handleMarkItem(asset.id, 'Missing')}>Missing</button>
+                                <button className="btn btn-secondary" style={{ padding: '4px 8px', fontSize: '0.75rem', borderColor: '#f59e0b', color: '#f59e0b' }} onClick={() => handleMarkItem(asset.id, 'Damaged')}>Damaged</button>
+                              </>
+                            )}
+                            {/* Asset Manager resolution buttons — only for flagged, unresolved items */}
+                            {isManager && isFlagged && !isResolved && selectedCycleDetails.cycle.status === 'Active' && (
+                              <button
+                                className="btn btn-secondary"
+                                style={{ padding: '4px 10px', fontSize: '0.75rem', borderColor: '#6366f1', color: '#6366f1' }}
+                                onClick={() => openResolveModal(asset.id, asset.name)}
+                              >
+                                ⚡ Resolve
+                              </button>
+                            )}
+                            {!canEdit && !isManager && selectedCycleDetails.cycle.status !== 'Closed' && (
+                              <span style={{ fontSize: '0.85rem', color: '#888' }}>Read-only</span>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     );
@@ -351,6 +405,52 @@ export default function AuditsPage() {
                 </button>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* ── Resolve Item Modal ── */}
+      {isResolveOpen && resolveTarget && (
+        <div style={{...modalOverlayStyle, zIndex: 300}}>
+          <div style={{...modalContentStyle, maxWidth: '460px'}}>
+            <h2 style={{ margin: '0 0 0.5rem' }}>⚡ Resolve Discrepancy</h2>
+            <p style={{ color: '#94a3b8', margin: '0 0 1.5rem', fontSize: '0.9rem' }}>
+              Asset: <strong>{resolveTarget.asset_name}</strong>
+            </p>
+            <form onSubmit={handleResolveSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              <div className="form-group">
+                <label>Resolution Action</label>
+                <select
+                  required
+                  className="filter-select"
+                  value={resolveForm.action}
+                  onChange={e => setResolveForm({ ...resolveForm, action: e.target.value })}
+                >
+                  <option value="">Select action…</option>
+                  <option value="confirm_lost">Confirm Lost — mark asset as Lost immediately</option>
+                  <option value="confirm_damaged_to_maintenance">Send to Maintenance — create a maintenance request</option>
+                  <option value="override_verified">Override as Verified — dispute the finding (requires reason)</option>
+                </select>
+              </div>
+              <div className="form-group">
+                <label>
+                  Notes / Reason
+                  {resolveForm.action === 'override_verified' && <span style={{ color: '#f87171' }}> *</span>}
+                </label>
+                <textarea
+                  rows="3"
+                  value={resolveForm.notes}
+                  onChange={e => setResolveForm({ ...resolveForm, notes: e.target.value })}
+                  placeholder={resolveForm.action === 'override_verified' ? 'Required: explain why the finding is incorrect…' : 'Optional: additional context…'}
+                  style={{ width: '100%', padding: '0.6rem', background: 'var(--color-bg)', border: '1px solid var(--color-border)', borderRadius: '6px', color: 'inherit', resize: 'vertical' }}
+                />
+              </div>
+              {resolveError && <div className="form-error">{resolveError}</div>}
+              <div style={{ display: 'flex', gap: '1rem', marginTop: '0.5rem' }}>
+                <button type="submit" className="btn btn-primary" style={{ background: 'linear-gradient(135deg, #6366f1, #4f46e5)' }}>Apply Resolution</button>
+                <button type="button" className="btn btn-secondary" onClick={() => setIsResolveOpen(false)}>Cancel</button>
+              </div>
+            </form>
           </div>
         </div>
       )}

@@ -31,12 +31,14 @@ from app.models.audit_cycle import AuditCycle, audit_cycle_auditors
 from app.models.audit_item import AuditItem
 from app.models.asset import Asset
 from app.models.employee import Employee
+from app.models.maintenance_request import MaintenanceRequest
 from app.schemas.audits import (
     AuditCycleCreate,
     AuditCycleOut,
     AuditCycleUpdate,
     AuditItemMark,
     AuditItemOut,
+    AuditItemResolve,
     AuditorAssignment,
     AuditCycleDetailOut,
     AuditCycleCloseOut,
@@ -344,6 +346,97 @@ async def mark_audit_item(
     return item
 
 
+# ── POST /{cycle_id}/items/{asset_id}/resolve ──────────────────────────────
+
+@router.post(
+    "/{cycle_id}/items/{asset_id}/resolve",
+    response_model=AuditItemOut,
+    dependencies=[Depends(require_asset_manager)],
+)
+async def resolve_audit_item(
+    cycle_id: uuid.UUID,
+    asset_id: uuid.UUID,
+    body: AuditItemResolve,
+    db: AsyncSession = Depends(get_db),
+    current_user: Employee = Depends(_resolve_user),
+):
+    """
+    Asset Manager explicitly resolves a flagged audit item.
+
+    Actions:
+      confirm_lost:                  Sets Asset.status = 'Lost' immediately.
+      confirm_damaged_to_maintenance: Creates a MaintenanceRequest for the asset.
+      override_verified:             Clears the flag (marks back to Verified) with a reason.
+    """
+    # Fetch the audit item
+    item_stmt = select(AuditItem).where(
+        AuditItem.audit_cycle_id == cycle_id,
+        AuditItem.asset_id == asset_id,
+    )
+    item_result = await db.execute(item_stmt)
+    item = item_result.scalar_one_or_none()
+    if not item:
+        raise HTTPException(status_code=404, detail="Audit item not found")
+    if item.resolved:
+        raise HTTPException(status_code=409, detail="Audit item is already resolved")
+    if item.result not in ("Missing", "Damaged") and body.action != "override_verified":
+        raise HTTPException(status_code=400, detail="Only Missing/Damaged items can be resolved with this action")
+
+    asset = await db.get(Asset, asset_id)
+    if not asset:
+        raise HTTPException(status_code=404, detail="Asset not found")
+
+    cycle = await db.get(AuditCycle, cycle_id)
+    if not cycle or cycle.status == "Closed":
+        raise HTTPException(status_code=400, detail="Cannot resolve items on a closed cycle")
+
+    if body.action == "confirm_lost":
+        asset.status = "Lost"
+
+    elif body.action == "confirm_damaged_to_maintenance":
+        maint = MaintenanceRequest(
+            asset_id=asset_id,
+            raised_by=current_user.id,
+            issue_description=(
+                f"Audit discrepancy: asset marked Damaged in cycle {cycle_id}. "
+                + (body.notes or "")
+            ),
+            priority="High",
+            status="Pending",
+        )
+        db.add(maint)
+
+    elif body.action == "override_verified":
+        if not body.notes:
+            raise HTTPException(
+                status_code=422,
+                detail="notes/reason is required when using override_verified"
+            )
+        item.result = "Verified"
+
+    item.resolved = True
+    item.resolved_action = body.action
+    item.resolved_notes = body.notes
+
+    log_activity(
+        db,
+        current_user.id,
+        f"audit_item_resolved_{body.action}",
+        "AuditItem",
+        str(item.id),
+        details={
+            "cycle_id": str(cycle_id),
+            "asset_id": str(asset_id),
+            "action": body.action,
+            "notes": body.notes,
+        },
+    )
+
+    await db.commit()
+    await db.refresh(item)
+    return item
+
+
 # ── POST /{cycle_id}/close ─────────────────────────────────────────────────
 
 @router.post("/{cycle_id}/close", response_model=AuditCycleCloseOut,
@@ -386,6 +479,17 @@ async def close_audit_cycle(
     
     report = []
     for item, asset in discrepancies:
+        # Skip items already resolved by the Asset Manager
+        if item.resolved:
+            report.append({
+                "asset_id": str(asset.id),
+                "asset_name": asset.name,
+                "asset_tag": asset.asset_tag,
+                "result": item.result,
+                "notes": item.notes,
+            })
+            continue
+
         if item.result == "Missing" and asset.status != "Lost":
             asset.status = "Lost"
             
