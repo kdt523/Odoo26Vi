@@ -75,6 +75,10 @@ class Asset(Base):
     photo_ref: Mapped[Optional[str]] = mapped_column(String(1024), nullable=True)
     document_ref: Mapped[Optional[str]] = mapped_column(String(1024), nullable=True)
 
+    # ── Scheduled dates (optional; used by maintenance-and-retirement report) ──
+    next_maintenance_due_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    expected_retirement_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+
     # ── Relationships ──────────────────────────────────────────────────────
     category: Mapped["AssetCategory"] = relationship(  # type: ignore[name-defined]
         "AssetCategory", back_populates="assets"

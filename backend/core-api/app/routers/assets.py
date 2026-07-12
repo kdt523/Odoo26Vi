@@ -117,6 +117,8 @@ async def register_asset(body: AssetCreate, current_user=Depends(require_asset_m
         is_bookable=body.is_bookable,
         photo_ref=body.photo_ref,
         document_ref=body.document_ref,
+        next_maintenance_due_date=body.next_maintenance_due_date,
+        expected_retirement_date=body.expected_retirement_date,
         status="Available"
     )
     db.add(asset)
