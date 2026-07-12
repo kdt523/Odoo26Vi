@@ -131,7 +131,4 @@ alembic downgrade -1
 
 ---
 
-## Project Status
 
-> **This is a scaffold pass.** All endpoints exist and are routable but return `501 Not Implemented`.
-> Business logic, conflict checks, and validation will be implemented module-by-module in subsequent passes.
