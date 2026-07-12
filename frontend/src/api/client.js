@@ -22,7 +22,7 @@ const authInterceptor = (config) => {
 
 /** core-api (FastAPI) axios instance */
 export const coreApi = axios.create({
-  baseURL: `${CORE_API_URL}/api/v1`,
+  baseURL: `${CORE_API_URL}/api`,
   headers: { 'Content-Type': 'application/json' },
 });
 coreApi.interceptors.request.use(authInterceptor);

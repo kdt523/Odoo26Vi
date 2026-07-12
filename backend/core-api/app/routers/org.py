@@ -34,7 +34,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.security import require_admin, require_asset_manager, require_authenticated
 from app.db import get_db
 from app.models.department import Department
-from app.models.asset import AssetCategory
+from app.models.asset_category import AssetCategory
 from app.models.employee import Employee
 from app.models.activity_log import ActivityLog
 from app.schemas.org import (

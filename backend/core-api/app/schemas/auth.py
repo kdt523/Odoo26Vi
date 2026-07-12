@@ -5,6 +5,7 @@ Note: SignupRequest intentionally does NOT expose a `role` field.
       Role is always set to 'Employee' at the service layer.
 """
 
+from uuid import UUID
 from pydantic import BaseModel, EmailStr, Field
 
 
@@ -35,11 +36,11 @@ class ForgotPasswordRequest(BaseModel):
 
 
 class EmployeeOut(BaseModel):
-    id: str
+    id: UUID
     name: str
     email: str
     role: str
     status: str
-    department_id: str | None = None
+    department_id: UUID | None = None
 
     model_config = {"from_attributes": True}
