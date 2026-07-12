@@ -1,3 +1,4 @@
+# pyrefly: ignore [missing-import]
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 # We will initialize it with UTC timezone to prevent daylight savings issues
