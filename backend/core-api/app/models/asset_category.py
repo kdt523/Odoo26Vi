@@ -7,7 +7,7 @@ e.g. {"warranty_period": "months", "voltage": "V"}.
 
 import uuid
 
-from sqlalchemy import String
+from sqlalchemy import String, Boolean
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -22,6 +22,7 @@ class AssetCategory(Base):
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
     custom_fields: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
     # ── Relationships ──────────────────────────────────────────────────────
     assets: Mapped[list["Asset"]] = relationship(  # type: ignore[name-defined]
