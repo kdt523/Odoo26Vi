@@ -142,9 +142,17 @@ async def get_audit_cycle(
             "audit_item": items.get(asset.id)
         })
         
+    # Fetch auditor IDs
+    auditors_stmt = select(audit_cycle_auditors.c.employee_id).where(
+        audit_cycle_auditors.c.audit_cycle_id == cycle_id
+    )
+    auditors_result = await db.execute(auditors_stmt)
+    auditor_ids = [row for row in auditors_result.scalars()]
+        
     return {
         "cycle": cycle,
-        "assets": detail_assets
+        "assets": detail_assets,
+        "auditor_ids": auditor_ids
     }
 
 

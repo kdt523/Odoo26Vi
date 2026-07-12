@@ -79,6 +79,7 @@ class AuditCycleDetailItemOut(BaseModel):
 class AuditCycleDetailOut(BaseModel):
     cycle: AuditCycleOut
     assets: list[AuditCycleDetailItemOut]
+    auditor_ids: list[UUID] = Field(default_factory=list)
 
 
 # ── Close Response ─────────────────────────────────────────────────────────
