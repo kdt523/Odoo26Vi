@@ -30,7 +30,6 @@ export default function AssetsPage() {
   const [departments, setDepartments] = useState([]);
   const [isRegistering, setIsRegistering] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [scope, setScope] = useState(role === 'DepartmentHead' ? 'department' : 'org');
 
   // Form state
   const [formData, setFormData] = useState({
@@ -86,10 +85,7 @@ export default function AssetsPage() {
       params.append('page', page);
       params.append('page_size', 20);
 
-      let endpointToCall = forcedEndpoint;
-      if (!endpointToCall) {
-        endpointToCall = scope === 'department' ? '/assets/department' : '/assets';
-      }
+      let endpointToCall = scope === 'department' ? '/assets/department' : '/assets';
 
       const res = await coreApi.get(`${endpointToCall}?${params.toString()}`);
       setAssets(res.data.items);

@@ -70,6 +70,8 @@ async def _check_overlap(
                 "error": "BookingOverlap",
                 "message": "Asset is already booked for part or all of the requested time slot.",
                 "conflicting_booking_id": str(conflicting.id),
+                "conflicting_start": conflicting.start_time.isoformat(),
+                "conflicting_end": conflicting.end_time.isoformat(),
             },
         )
 
