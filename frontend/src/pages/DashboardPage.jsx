@@ -5,6 +5,7 @@
  * KPI cards + overdue returns section.
  * All data is placeholder — wire to core-api + reports-api in a later pass.
  */
+import { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { Link } from 'react-router-dom';
 
@@ -26,6 +27,9 @@ const RECENT_ACTIVITY = [
 
 export default function DashboardPage() {
   const { currentUser, role } = useAuth();
+  
+  const defaultScope = role === 'DepartmentHead' ? 'department' : 'all';
+  const [scope, setScope] = useState(defaultScope);
 
   return (
     <div className="page">
@@ -36,6 +40,24 @@ export default function DashboardPage() {
           {role ? ` · ${role}` : ''}
         </p>
       </div>
+
+      {/* ── Scope Toggle for Department Head ── */}
+      {role === 'DepartmentHead' && (
+        <div className="tabs" style={{ marginBottom: '1.5rem' }}>
+          <button 
+            className={`tab ${scope === 'department' ? 'tab--active' : ''}`}
+            onClick={() => setScope('department')}
+          >
+            Department
+          </button>
+          <button 
+            className={`tab ${scope === 'all' ? 'tab--active' : ''}`}
+            onClick={() => setScope('all')}
+          >
+            Org-wide
+          </button>
+        </div>
+      )}
 
       {/* ── KPI Cards ── */}
       <section aria-label="Key performance indicators">
