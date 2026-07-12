@@ -10,6 +10,12 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
 from app.routers import auth, org, assets, allocations, bookings, maintenance, audits, dashboard, reports, notifications, activity_log, uploads
+from app.core.scheduler import scheduler
+from app.services.jobs import (
+    process_booking_reminders,
+    process_overdue_allocations,
+    process_overdue_maintenance,
+)
 
 # ── Application factory ────────────────────────────────────────────────────
 app = FastAPI(
@@ -61,11 +67,12 @@ async def health():
 # ── Startup / shutdown events ──────────────────────────────────────────────
 @app.on_event("startup")
 async def on_startup():
-    # TODO: verify DB connectivity, warm caches if needed
-    pass
+    scheduler.add_job(process_booking_reminders, "interval", minutes=15, id="booking_reminders", replace_existing=True)
+    scheduler.add_job(process_overdue_allocations, "interval", minutes=15, id="overdue_allocations", replace_existing=True)
+    scheduler.add_job(process_overdue_maintenance, "interval", minutes=15, id="overdue_maintenance", replace_existing=True)
+    scheduler.start()
 
 
 @app.on_event("shutdown")
 async def on_shutdown():
-    # TODO: clean up connections
-    pass
+    scheduler.shutdown()

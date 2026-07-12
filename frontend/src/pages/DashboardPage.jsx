@@ -27,7 +27,9 @@ const RECENT_ACTIVITY = [
 
 export default function DashboardPage() {
   const { currentUser, role } = useAuth();
-  const [scope, setScope] = useState(role === 'DepartmentHead' ? 'department' : 'org');
+  
+  const defaultScope = role === 'DepartmentHead' ? 'department' : 'all';
+  const [scope, setScope] = useState(defaultScope);
 
   return (
     <div className="page">
@@ -55,6 +57,24 @@ export default function DashboardPage() {
           </div>
         )}
       </div>
+
+      {/* ── Scope Toggle for Department Head ── */}
+      {role === 'DepartmentHead' && (
+        <div className="tabs" style={{ marginBottom: '1.5rem' }}>
+          <button 
+            className={`tab ${scope === 'department' ? 'tab--active' : ''}`}
+            onClick={() => setScope('department')}
+          >
+            Department
+          </button>
+          <button 
+            className={`tab ${scope === 'all' ? 'tab--active' : ''}`}
+            onClick={() => setScope('all')}
+          >
+            Org-wide
+          </button>
+        </div>
+      )}
 
       {/* ── KPI Cards ── */}
       <section aria-label="Key performance indicators">

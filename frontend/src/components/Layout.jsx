@@ -54,7 +54,9 @@ export default function Layout() {
                 `nav-link ${isActive ? 'nav-link--active' : ''}`
               }
             >
-              <span className="nav-label">{item.label}</span>
+              <span className="nav-label">
+                {item.path === '/assets' && role === 'Employee' ? '🗂️ My Assets' : item.label}
+              </span>
               {item.path === '/notifications' && unreadCount > 0 && (
                 <span className="badge badge--unread">{unreadCount > 99 ? '99+' : unreadCount}</span>
               )}

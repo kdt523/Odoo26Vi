@@ -74,6 +74,10 @@ class MaintenanceRequest(Base):
         default="Pending",
     )
 
+    overdue_alert_sent_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
