@@ -15,6 +15,7 @@ class AuditCycleCreate(BaseModel):
     location: Optional[str] = None
     start_date: date
     end_date: Optional[date] = None
+    auditor_ids: Optional[list[UUID]] = None
 
 
 class AuditCycleUpdate(BaseModel):
@@ -40,7 +41,6 @@ class AuditorAssignment(BaseModel):
 
 # ── AuditItem ──────────────────────────────────────────────────────────────
 class AuditItemMark(BaseModel):
-    asset_id: UUID
     result: str = Field(..., pattern="^(Verified|Missing|Damaged)$")
     notes: Optional[str] = None
 
@@ -53,3 +53,43 @@ class AuditItemOut(BaseModel):
     notes: Optional[str] = None
 
     model_config = {"from_attributes": True}
+
+
+# ── Detailed Cycle ─────────────────────────────────────────────────────────
+
+# We need to import AssetOut if not already done, but to avoid circular imports, we can define a simplified version or use forward references. 
+# Better yet, since we need Asset data, let's define a minimal Asset schema here or assume the router will assemble it.
+# Assuming we can just use a dictionary or import AssetOut from app.schemas.assets.
+# For now, let's define a simple asset representation for the detail view.
+
+class AuditCycleAssetOut(BaseModel):
+    id: UUID
+    name: str
+    asset_tag: str
+    department_id: Optional[UUID] = None
+    location: Optional[str] = None
+    status: str
+
+    model_config = {"from_attributes": True}
+
+class AuditCycleDetailItemOut(BaseModel):
+    asset: AuditCycleAssetOut
+    audit_item: Optional[AuditItemOut] = None
+
+class AuditCycleDetailOut(BaseModel):
+    cycle: AuditCycleOut
+    assets: list[AuditCycleDetailItemOut]
+
+
+# ── Close Response ─────────────────────────────────────────────────────────
+
+class AuditDiscrepancyReportItem(BaseModel):
+    asset_id: UUID
+    asset_name: str
+    asset_tag: str
+    result: str
+    notes: Optional[str] = None
+
+class AuditCycleCloseOut(BaseModel):
+    cycle: AuditCycleOut
+    discrepancy_report: list[AuditDiscrepancyReportItem]

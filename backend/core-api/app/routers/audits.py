@@ -29,6 +29,7 @@ from app.db import get_db
 from app.services.activity_log import log_activity
 from app.models.audit_cycle import AuditCycle, audit_cycle_auditors
 from app.models.audit_item import AuditItem
+from app.models.asset import Asset
 from app.models.employee import Employee
 from app.schemas.audits import (
     AuditCycleCreate,
@@ -37,6 +38,8 @@ from app.schemas.audits import (
     AuditItemMark,
     AuditItemOut,
     AuditorAssignment,
+    AuditCycleDetailOut,
+    AuditCycleCloseOut,
 )
 from app.services.notifications import create_notification
 
@@ -85,6 +88,14 @@ async def create_audit_cycle(
     db.add(cycle)
     await db.flush()
 
+    if body.auditor_ids:
+        for emp_id in set(body.auditor_ids):
+            await db.execute(
+                audit_cycle_auditors.insert().values(
+                    audit_cycle_id=cycle.id, employee_id=emp_id
+                )
+            )
+
     log_activity(
         db,
         current_user.id,
@@ -101,7 +112,7 @@ async def create_audit_cycle(
 
 # ── GET /{cycle_id} ────────────────────────────────────────────────────────
 
-@router.get("/{cycle_id}", response_model=AuditCycleOut)
+@router.get("/{cycle_id}", response_model=AuditCycleDetailOut)
 async def get_audit_cycle(
     cycle_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
@@ -110,7 +121,31 @@ async def get_audit_cycle(
     cycle = await db.get(AuditCycle, cycle_id)
     if not cycle:
         raise HTTPException(status_code=404, detail="Audit cycle not found")
-    return cycle
+        
+    asset_stmt = select(Asset).where(Asset.status != "Retired")
+    if cycle.scope_department_id:
+        asset_stmt = asset_stmt.where(Asset.department_id == cycle.scope_department_id)
+    if cycle.location:
+        asset_stmt = asset_stmt.where(Asset.location == cycle.location)
+        
+    assets_result = await db.execute(asset_stmt)
+    assets = assets_result.scalars().all()
+    
+    items_stmt = select(AuditItem).where(AuditItem.audit_cycle_id == cycle_id)
+    items_result = await db.execute(items_stmt)
+    items = {item.asset_id: item for item in items_result.scalars().all()}
+    
+    detail_assets = []
+    for asset in assets:
+        detail_assets.append({
+            "asset": asset,
+            "audit_item": items.get(asset.id)
+        })
+        
+    return {
+        "cycle": cycle,
+        "assets": detail_assets
+    }
 
 
 # ── PUT /{cycle_id} ────────────────────────────────────────────────────────
@@ -211,9 +246,10 @@ async def list_audit_items(
 
 # ── POST /{cycle_id}/items ─────────────────────────────────────────────────
 
-@router.post("/{cycle_id}/items", response_model=AuditItemOut, status_code=201)
+@router.post("/{cycle_id}/items/{asset_id}", response_model=AuditItemOut, status_code=201)
 async def mark_audit_item(
     cycle_id: uuid.UUID,
+    asset_id: uuid.UUID,
     body: AuditItemMark,
     db: AsyncSession = Depends(get_db),
     current_user: Employee = Depends(_resolve_user),
@@ -229,10 +265,19 @@ async def mark_audit_item(
     if cycle.status not in ("Draft", "Active"):
         raise HTTPException(status_code=400, detail="Audit cycle is not active")
 
+    # Check authorization: user must be assigned to this cycle
+    auditor_stmt = select(audit_cycle_auditors.c.employee_id).where(
+        audit_cycle_auditors.c.audit_cycle_id == cycle_id,
+        audit_cycle_auditors.c.employee_id == current_user.id
+    )
+    is_auditor = (await db.execute(auditor_stmt)).scalar_one_or_none()
+    if not is_auditor:
+        raise HTTPException(status_code=403, detail="Not authorized: only assigned auditors can mark items")
+
     # Upsert: check if item already exists for this cycle+asset
     existing_stmt = select(AuditItem).where(
         AuditItem.audit_cycle_id == cycle_id,
-        AuditItem.asset_id == body.asset_id,
+        AuditItem.asset_id == asset_id,
     )
     existing_result = await db.execute(existing_stmt)
     item = existing_result.scalar_one_or_none()
@@ -243,7 +288,7 @@ async def mark_audit_item(
     else:
         item = AuditItem(
             audit_cycle_id=cycle_id,
-            asset_id=body.asset_id,
+            asset_id=asset_id,
             result=body.result,
             notes=body.notes,
         )
@@ -264,7 +309,7 @@ async def mark_audit_item(
                 user_id=mgr.id,
                 type_="AuditDiscrepancyFlagged",
                 message=(
-                    f"Audit discrepancy: asset {body.asset_id} marked as "
+                    f"Audit discrepancy: asset {asset_id} marked as "
                     f"'{body.result}' in cycle (id={cycle_id})."
                 ),
                 entity_type="AuditItem",
@@ -281,7 +326,7 @@ async def mark_audit_item(
         str(item.id),
         details={
             "cycle_id": str(cycle_id),
-            "asset_id": str(body.asset_id),
+            "asset_id": str(asset_id),
             "result": body.result,
         },
     )
@@ -293,7 +338,7 @@ async def mark_audit_item(
 
 # ── POST /{cycle_id}/close ─────────────────────────────────────────────────
 
-@router.post("/{cycle_id}/close", response_model=AuditCycleOut,
+@router.post("/{cycle_id}/close", response_model=AuditCycleCloseOut,
              dependencies=[Depends(require_asset_manager)])
 async def close_audit_cycle(
     cycle_id: uuid.UUID,
@@ -304,6 +349,8 @@ async def close_audit_cycle(
     cycle = await db.get(AuditCycle, cycle_id)
     if not cycle:
         raise HTTPException(status_code=404, detail="Audit cycle not found")
+    if cycle.status == "Closed":
+        raise HTTPException(status_code=409, detail="Audit cycle is already closed")
     if cycle.status != "Active":
         raise HTTPException(
             status_code=400,
@@ -321,7 +368,31 @@ async def close_audit_cycle(
         str(cycle.id),
         details={"closed_by": str(current_user.id), "cycle_id": str(cycle.id)},
     )
+    
+    discrepancy_stmt = select(AuditItem, Asset).join(Asset, AuditItem.asset_id == Asset.id).where(
+        AuditItem.audit_cycle_id == cycle_id,
+        AuditItem.result.in_(["Missing", "Damaged"])
+    )
+    discrepancies_result = await db.execute(discrepancy_stmt)
+    discrepancies = discrepancies_result.all()
+    
+    report = []
+    for item, asset in discrepancies:
+        if item.result == "Missing" and asset.status != "Lost":
+            asset.status = "Lost"
+            
+        report.append({
+            "asset_id": str(asset.id),
+            "asset_name": asset.name,
+            "asset_tag": asset.asset_tag,
+            "result": item.result,
+            "notes": item.notes
+        })
 
     await db.commit()
     await db.refresh(cycle)
-    return cycle
+    
+    return {
+        "cycle": cycle,
+        "discrepancy_report": report
+    }
