@@ -29,6 +29,8 @@ from app.schemas.allocations import (
     AllocationCreate,
     AllocationOut,
     ReturnRequest,
+    ReturnInitiateRequest,
+    ReturnRejectRequest,
     TransferRequestApproval,
     TransferRequestCreate,
     TransferRequestOut,
@@ -247,6 +249,123 @@ async def return_asset(allocation_id: uuid.UUID, body: ReturnRequest, db: AsyncS
         "id": alloc.id, "asset_id": alloc.asset_id, "employee_id": alloc.employee_id, "department_id": alloc.department_id,
         "allocated_date": alloc.allocated_date, "expected_return_date": alloc.expected_return_date,
         "actual_return_date": alloc.actual_return_date, "status": alloc.status, "is_overdue": False
+    }
+
+
+@router.post("/{allocation_id}/return-request", response_model=AllocationOut)
+async def return_request_initiate(allocation_id: uuid.UUID, body: ReturnInitiateRequest, db: AsyncSession = Depends(get_db), current_user: Employee = Depends(get_current_employee)):
+    alloc = await db.get(Allocation, allocation_id)
+    if not alloc:
+        raise HTTPException(status_code=404, detail="Allocation not found")
+    if alloc.status != "Active":
+        raise HTTPException(status_code=400, detail="Allocation is not active")
+
+    asset = await db.get(Asset, alloc.asset_id)
+    if not asset:
+        raise HTTPException(status_code=404, detail="Asset not found")
+
+    alloc.status = "ReturnRequested"
+    alloc.return_condition_notes = body.condition_check_in_notes
+
+    # ── Notification: ReturnRequestedAlert ─────────────────────────────────
+    # Alert asset managers
+    managers_stmt = select(Employee).where(Employee.role.in_(["AssetManager", "Admin"]))
+    managers = (await db.execute(managers_stmt)).scalars().all()
+    for mgr in managers:
+        await create_notification(
+            db=db,
+            user_id=mgr.id,
+            type_="ReturnRequestedAlert",
+            message=f"Return requested for asset '{asset.name}' by {current_user.name}.",
+            entity_type="Allocation",
+            entity_id=str(alloc.id),
+        )
+
+    log_activity(db, current_user.id, "return_requested", "Allocation", str(alloc.id))
+
+    await db.commit()
+    await db.refresh(alloc)
+    
+    return {
+        "id": alloc.id, "asset_id": alloc.asset_id, "employee_id": alloc.employee_id, "department_id": alloc.department_id,
+        "allocated_date": alloc.allocated_date, "expected_return_date": alloc.expected_return_date,
+        "actual_return_date": alloc.actual_return_date, "status": alloc.status, "is_overdue": False
+    }
+
+
+@router.post("/{allocation_id}/return-approve", response_model=AllocationOut, dependencies=[Depends(require_asset_manager)])
+async def return_request_approve(allocation_id: uuid.UUID, db: AsyncSession = Depends(get_db), current_user: Employee = Depends(get_current_employee)):
+    alloc = await db.get(Allocation, allocation_id)
+    if not alloc:
+        raise HTTPException(status_code=404, detail="Allocation not found")
+    if alloc.status != "ReturnRequested":
+        raise HTTPException(status_code=400, detail="Allocation return has not been requested")
+
+    asset = await db.get(Asset, alloc.asset_id)
+    if not asset:
+        raise HTTPException(status_code=404, detail="Asset not found")
+
+    alloc.status = "Returned"
+    alloc.actual_return_date = date.today()
+    asset.status = "Available"
+
+    # ── Notification: ReturnApproved ───────────────────────────────────────
+    await create_notification(
+        db=db,
+        user_id=alloc.employee_id,
+        type_="ReturnApproved",
+        message=f"Your return of asset '{asset.name}' has been approved.",
+        entity_type="Allocation",
+        entity_id=str(alloc.id),
+    )
+
+    log_activity(db, current_user.id, "return_approved", "Allocation", str(alloc.id))
+
+    await db.commit()
+    await db.refresh(alloc)
+    
+    return {
+        "id": alloc.id, "asset_id": alloc.asset_id, "employee_id": alloc.employee_id, "department_id": alloc.department_id,
+        "allocated_date": alloc.allocated_date, "expected_return_date": alloc.expected_return_date,
+        "actual_return_date": alloc.actual_return_date, "status": alloc.status, "is_overdue": False
+    }
+
+
+@router.post("/{allocation_id}/return-reject", response_model=AllocationOut, dependencies=[Depends(require_asset_manager)])
+async def return_request_reject(allocation_id: uuid.UUID, body: ReturnRejectRequest, db: AsyncSession = Depends(get_db), current_user: Employee = Depends(get_current_employee)):
+    alloc = await db.get(Allocation, allocation_id)
+    if not alloc:
+        raise HTTPException(status_code=404, detail="Allocation not found")
+    if alloc.status != "ReturnRequested":
+        raise HTTPException(status_code=400, detail="Allocation return has not been requested")
+
+    asset = await db.get(Asset, alloc.asset_id)
+
+    alloc.status = "Active"
+
+    # ── Notification: ReturnRejected ───────────────────────────────────────
+    await create_notification(
+        db=db,
+        user_id=alloc.employee_id,
+        type_="ReturnRejected",
+        message=f"Your return request for asset '{asset.name if asset else 'unknown'}' was rejected. Reason: {body.reason}",
+        entity_type="Allocation",
+        entity_id=str(alloc.id),
+    )
+
+    log_activity(db, current_user.id, "return_rejected", "Allocation", str(alloc.id), details={"reason": body.reason})
+
+    await db.commit()
+    await db.refresh(alloc)
+    
+    is_overdue = False
+    if alloc.expected_return_date and alloc.expected_return_date < date.today():
+        is_overdue = True
+
+    return {
+        "id": alloc.id, "asset_id": alloc.asset_id, "employee_id": alloc.employee_id, "department_id": alloc.department_id,
+        "allocated_date": alloc.allocated_date, "expected_return_date": alloc.expected_return_date,
+        "actual_return_date": alloc.actual_return_date, "status": alloc.status, "is_overdue": is_overdue
     }
 
 
