@@ -16,6 +16,7 @@ from app.core.security import get_current_user, require_authenticated
 from app.db import get_db
 from app.models.employee import Employee
 from app.models.notification import Notification
+from app.services.activity_log import log_activity
 from app.schemas.notifications import NotificationListOut, NotificationOut
 
 router = APIRouter(prefix="/notifications", tags=["notifications"])
@@ -102,6 +103,13 @@ async def mark_notification_read(
 
     if not notif.is_read:
         notif.is_read = True
-        # Session auto-commits via get_db(); no explicit commit needed here
+        log_activity(
+            db,
+            current_user.id,
+            "notification_read",
+            "Notification",
+            str(notif.id),
+        )
+        await db.commit()
 
     return NotificationOut.model_validate(notif)

@@ -22,7 +22,9 @@ from app.schemas.assets import AssetCreate, AssetListResponse, AssetOut, AssetUp
 from app.models.asset import Asset
 from app.models.allocation import Allocation
 from app.models.maintenance_request import MaintenanceRequest
+from app.models.maintenance_request import MaintenanceRequest
 from app.models.activity_log import ActivityLog
+from app.services.activity_log import log_activity
 
 router = APIRouter(prefix="/assets", tags=["assets"])
 
@@ -111,23 +113,21 @@ async def register_asset(body: AssetCreate, current_user=Depends(require_asset_m
     )
     db.add(asset)
     
-    log_entry = ActivityLog(
-        user_id=current_user.id,
-        action="asset_registered",
-        entity_type="Asset",
+    await db.flush()
+    log_activity(
+        db,
+        current_user.id,
+        "asset_registered",
+        "Asset",
+        str(asset.id),
         details={
             "asset_tag": generated_tag,
             "category_id": str(body.category_id)
         }
     )
-    db.add(log_entry)
     
     await db.commit()
     await db.refresh(asset)
-    
-    # Update entity_id in log_entry now that asset.id is populated
-    log_entry.entity_id = str(asset.id)
-    await db.commit()
     
     return asset
 
@@ -160,14 +160,14 @@ async def update_asset(asset_id: uuid.UUID, body: AssetUpdate,
     for field, value in body.model_dump(exclude_unset=True).items():
         setattr(asset, field, value)
         
-    log_entry = ActivityLog(
-        user_id=current_user.id,
-        action="asset_updated",
-        entity_type="Asset",
-        entity_id=str(asset.id),
+    log_activity(
+        db,
+        current_user.id,
+        "asset_updated",
+        "Asset",
+        str(asset.id),
         details={"updated_fields": list(body.model_dump(exclude_unset=True).keys())}
     )
-    db.add(log_entry)
     
     await db.commit()
     await db.refresh(asset)

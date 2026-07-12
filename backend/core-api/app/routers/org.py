@@ -37,6 +37,7 @@ from app.models.department import Department
 from app.models.asset_category import AssetCategory
 from app.models.employee import Employee
 from app.models.activity_log import ActivityLog
+from app.services.activity_log import log_activity
 from app.schemas.org import (
     AssetCategoryCreate,
     AssetCategoryOut,
@@ -64,7 +65,7 @@ async def list_departments(db: AsyncSession = Depends(get_db), _=Depends(require
 
 @router.post("/departments", response_model=DepartmentOut, status_code=201,
              dependencies=[Depends(require_admin)])
-async def create_department(body: DepartmentCreate, db: AsyncSession = Depends(get_db)):
+async def create_department(body: DepartmentCreate, db: AsyncSession = Depends(get_db), current_user=Depends(require_admin)):
     dept = Department(
         name=body.name,
         description=body.description,
@@ -72,6 +73,8 @@ async def create_department(body: DepartmentCreate, db: AsyncSession = Depends(g
         head_employee_id=body.head_employee_id
     )
     db.add(dept)
+    await db.flush()
+    log_activity(db, current_user.id, "Department Created", "Department", str(dept.id))
     await db.commit()
     await db.refresh(dept)
     return dept
@@ -87,14 +90,16 @@ async def get_department(department_id: uuid.UUID, db: AsyncSession = Depends(ge
 @router.put("/departments/{department_id}", response_model=DepartmentOut,
             dependencies=[Depends(require_admin)])
 async def update_department(department_id: uuid.UUID, body: DepartmentUpdate,
-                             db: AsyncSession = Depends(get_db)):
+                             db: AsyncSession = Depends(get_db), current_user=Depends(require_admin)):
+    log_activity(db, current_user.id, "Department Updated", "Department", str(department_id))
     # TODO: fetch → apply patch → commit
     raise HTTPException(status_code=status.HTTP_501_NOT_IMPLEMENTED, detail="Not implemented")
 
 
 @router.delete("/departments/{department_id}", status_code=204,
                dependencies=[Depends(require_admin)])
-async def delete_department(department_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+async def delete_department(department_id: uuid.UUID, db: AsyncSession = Depends(get_db), current_user=Depends(require_admin)):
+    log_activity(db, current_user.id, "Department Deleted", "Department", str(department_id))
     # TODO: soft-delete (set status=Inactive) or hard-delete with FK guard
     raise HTTPException(status_code=status.HTTP_501_NOT_IMPLEMENTED, detail="Not implemented")
 
@@ -110,13 +115,15 @@ async def list_categories(db: AsyncSession = Depends(get_db), _=Depends(require_
 
 @router.post("/categories", response_model=AssetCategoryOut, status_code=201,
              dependencies=[Depends(require_asset_manager)])
-async def create_category(body: AssetCategoryCreate, db: AsyncSession = Depends(get_db)):
+async def create_category(body: AssetCategoryCreate, db: AsyncSession = Depends(get_db), current_user=Depends(require_asset_manager)):
     cat = AssetCategory(
         name=body.name,
         description=body.description,
         custom_fields_schema=body.custom_fields_schema or {}
     )
     db.add(cat)
+    await db.flush()
+    log_activity(db, current_user.id, "Asset Category Created", "AssetCategory", str(cat.id))
     await db.commit()
     await db.refresh(cat)
     return cat
@@ -132,14 +139,16 @@ async def get_category(category_id: uuid.UUID, db: AsyncSession = Depends(get_db
 @router.put("/categories/{category_id}", response_model=AssetCategoryOut,
             dependencies=[Depends(require_asset_manager)])
 async def update_category(category_id: uuid.UUID, body: AssetCategoryUpdate,
-                           db: AsyncSession = Depends(get_db)):
+                           db: AsyncSession = Depends(get_db), current_user=Depends(require_asset_manager)):
+    log_activity(db, current_user.id, "Asset Category Updated", "AssetCategory", str(category_id))
     # TODO: fetch → patch → commit
     raise HTTPException(status_code=status.HTTP_501_NOT_IMPLEMENTED, detail="Not implemented")
 
 
 @router.delete("/categories/{category_id}", status_code=204,
                dependencies=[Depends(require_admin)])
-async def delete_category(category_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+async def delete_category(category_id: uuid.UUID, db: AsyncSession = Depends(get_db), current_user=Depends(require_admin)):
+    log_activity(db, current_user.id, "Asset Category Deleted", "AssetCategory", str(category_id))
     # TODO: delete or soft-delete; guard if assets reference this category
     raise HTTPException(status_code=status.HTTP_501_NOT_IMPLEMENTED, detail="Not implemented")
 
@@ -174,7 +183,8 @@ async def list_employees(
 
 @router.post("/employees", response_model=EmployeeOut, status_code=201,
              dependencies=[Depends(require_admin)])
-async def create_employee(body: EmployeeCreate, db: AsyncSession = Depends(get_db)):
+async def create_employee(body: EmployeeCreate, db: AsyncSession = Depends(get_db), current_user=Depends(require_admin)):
+    log_activity(db, current_user.id, "Employee Created", "Employee")
     # TODO: admin-created employee (role can be set by admin)
     raise HTTPException(status_code=status.HTTP_501_NOT_IMPLEMENTED, detail="Not implemented")
 
@@ -189,7 +199,7 @@ async def get_employee(employee_id: uuid.UUID, db: AsyncSession = Depends(get_db
 @router.put("/employees/{employee_id}", response_model=EmployeeOut,
             dependencies=[Depends(require_admin)])
 async def update_employee(employee_id: uuid.UUID, body: EmployeeUpdate,
-                           db: AsyncSession = Depends(get_db)):
+                           db: AsyncSession = Depends(get_db), current_user=Depends(require_admin)):
     stmt = select(Employee).where(Employee.id == employee_id)
     result = await db.execute(stmt)
     employee = result.scalar_one_or_none()
@@ -203,6 +213,7 @@ async def update_employee(employee_id: uuid.UUID, body: EmployeeUpdate,
     if body.status is not None:
         employee.status = body.status
         
+    log_activity(db, current_user.id, "Employee Updated", "Employee", str(employee_id))
     await db.commit()
     await db.refresh(employee)
     return employee
@@ -230,17 +241,14 @@ async def promote_employee(employee_id: uuid.UUID, body: RolePromotionRequest,
     employee.role = body.role
     
     # Log the promotion
-    log_entry = ActivityLog(
-        user_id=current_user.id,
-        action="role_promoted",
-        entity_type="Employee",
-        entity_id=str(employee.id),
-        details={
-            "old_role": old_role,
-            "new_role": employee.role
-        }
+    log_activity(
+        db,
+        current_user.id,
+        "role_promoted",
+        "Employee",
+        str(employee.id),
+        details={"old_role": old_role, "new_role": employee.role}
     )
-    db.add(log_entry)
     
     await db.commit()
     await db.refresh(employee)

@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.employee import Employee
+from app.services.activity_log import log_activity
 
 from app.core.security import (
     create_access_token,
@@ -55,6 +56,11 @@ async def signup(body: SignupRequest, db: AsyncSession = Depends(get_db)):
         status="Active"
     )
     db.add(employee)
+    
+    # Flush to ensure employee.id is generated if not already
+    await db.flush()
+    log_activity(db, employee.id, "User Signed Up", "User", str(employee.id))
+    
     await db.commit()
     await db.refresh(employee)
     return employee
@@ -73,6 +79,9 @@ async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)):
     access_token = create_access_token(subject=str(employee.id), role=employee.role)
     refresh_token = create_refresh_token(subject=str(employee.id))
     
+    log_activity(db, employee.id, "User Logged In", "User", str(employee.id))
+    await db.commit()
+    
     return {
         "access_token": access_token,
         "refresh_token": refresh_token,
@@ -81,7 +90,7 @@ async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/refresh", response_model=TokenResponse)
-async def refresh_token(body: RefreshRequest):
+async def refresh_token(body: RefreshRequest, db: AsyncSession = Depends(get_db)):
     """Issue a new access token given a valid refresh token."""
     try:
         payload = decode_token(body.refresh_token)
@@ -100,6 +109,9 @@ async def refresh_token(body: RefreshRequest):
         access_token = create_access_token(subject=str(employee.id), role=employee.role)
         new_refresh_token = create_refresh_token(subject=str(employee.id))
         
+        log_activity(db, employee.id, "Token Refreshed", "User", str(employee.id))
+        await db.commit()
+        
         return {
             "access_token": access_token,
             "refresh_token": new_refresh_token,
@@ -110,12 +122,14 @@ async def refresh_token(body: RefreshRequest):
 
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
-async def logout(current_user=Depends(get_current_user)):
+async def logout(current_user=Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     """
     Logout stub. JWT is stateless — real invalidation requires a token
     denylist (Redis recommended). Client should discard the token.
     TODO: implement token denylist if needed.
     """
+    log_activity(db, current_user.id, "User Logged Out", "User", str(current_user.id))
+    await db.commit()
     return None
 
 
@@ -126,6 +140,13 @@ async def forgot_password(body: ForgotPasswordRequest, db: AsyncSession = Depend
     TODO: generate reset token, store expiry, send email via SMTP/SendGrid.
     """
     # Always return 202 to avoid email enumeration
+    stmt = select(Employee).where(Employee.email == body.email)
+    result = await db.execute(stmt)
+    employee = result.scalar_one_or_none()
+    if employee:
+        log_activity(db, employee.id, "Password Reset Requested", "User", str(employee.id))
+        await db.commit()
+        
     return {"detail": "If the email exists, a reset link has been sent."}
 
 

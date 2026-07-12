@@ -29,7 +29,7 @@ from app.schemas.maintenance import (
     TechnicianAssignment,
 )
 from app.models.maintenance_request import MaintenanceRequest
-from app.models.activity_log import ActivityLog
+from app.services.activity_log import log_activity
 from app.models.asset import Asset
 from app.models.employee import Employee
 from app.services.notifications import create_notification
@@ -94,6 +94,8 @@ async def raise_maintenance_request(
         status="Pending"
     )
     db.add(req)
+    await db.flush()
+    log_activity(db, user.id, "Maintenance Requested", "MaintenanceRequest", str(req.id))
     await db.commit()
     await db.refresh(req)
     return req
@@ -147,13 +149,14 @@ async def approve_maintenance(
     )
 
     # ── Activity log ───────────────────────────────────────────────────────
-    db.add(ActivityLog(
-        user_id=user.id,
-        action="maintenance_approved",
-        entity_type="MaintenanceRequest",
-        entity_id=str(req.id),
+    log_activity(
+        db,
+        user.id,
+        "maintenance_approved",
+        "MaintenanceRequest",
+        str(req.id),
         details={"asset_id": str(req.asset_id), "approved_by": str(user.id)},
-    ))
+    )
 
     await db.commit()
     await db.refresh(req)
@@ -188,13 +191,14 @@ async def reject_maintenance(
     )
 
     # ── Activity log ───────────────────────────────────────────────────────
-    db.add(ActivityLog(
-        user_id=user.id,
-        action="maintenance_rejected",
-        entity_type="MaintenanceRequest",
-        entity_id=str(req.id),
+    log_activity(
+        db,
+        user.id,
+        "maintenance_rejected",
+        "MaintenanceRequest",
+        str(req.id),
         details={"asset_id": str(req.asset_id), "rejected_by": str(user.id)},
-    ))
+    )
 
     await db.commit()
     await db.refresh(req)
@@ -205,7 +209,8 @@ async def reject_maintenance(
 async def assign_technician(
     request_id: uuid.UUID, 
     body: TechnicianAssignment,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    user: Employee = Depends(get_current_employee)
 ):
     req = await db.get(MaintenanceRequest, request_id)
     if not req:
@@ -215,6 +220,7 @@ async def assign_technician(
         
     req.status = "TechnicianAssigned"
     req.technician = body.technician
+    log_activity(db, user.id, "Technician Assigned", "MaintenanceRequest", str(req.id), details={"technician": body.technician})
     await db.commit()
     await db.refresh(req)
     return req
@@ -223,7 +229,8 @@ async def assign_technician(
 @router.post("/{request_id}/start", response_model=MaintenanceRequestOut, dependencies=[Depends(require_asset_manager)])
 async def start_maintenance(
     request_id: uuid.UUID, 
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    user: Employee = Depends(get_current_employee)
 ):
     req = await db.get(MaintenanceRequest, request_id)
     if not req:
@@ -232,6 +239,7 @@ async def start_maintenance(
         raise HTTPException(status_code=400, detail="Request must have a TechnicianAssigned before starting")
         
     req.status = "InProgress"
+    log_activity(db, user.id, "Maintenance Started", "MaintenanceRequest", str(req.id))
     await db.commit()
     await db.refresh(req)
     return req
@@ -240,7 +248,8 @@ async def start_maintenance(
 @router.post("/{request_id}/resolve", response_model=MaintenanceRequestOut, dependencies=[Depends(require_asset_manager)])
 async def resolve_maintenance(
     request_id: uuid.UUID, 
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    user: Employee = Depends(get_current_employee)
 ):
     req = await db.get(MaintenanceRequest, request_id)
     if not req:
@@ -255,9 +264,10 @@ async def resolve_maintenance(
     # Atomic update
     req.status = "Resolved"
     
-    # Ideally, we should restore it to 'Allocated' if it was allocated, but Issue #34 explicitly says:
     # "flips Asset status back to Available in the same transaction."
     asset.status = "Available"
+    
+    log_activity(db, user.id, "Maintenance Resolved", "MaintenanceRequest", str(req.id))
     
     await db.commit()
     await db.refresh(req)

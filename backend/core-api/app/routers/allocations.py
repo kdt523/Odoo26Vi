@@ -34,7 +34,7 @@ from app.schemas.allocations import (
     TransferRequestOut,
 )
 from app.models.allocation import Allocation
-from app.models.activity_log import ActivityLog
+from app.services.activity_log import log_activity
 from app.models.asset import Asset
 from app.models.employee import Employee
 from app.models.transfer_request import TransferRequest
@@ -90,7 +90,7 @@ async def list_allocations(db: AsyncSession = Depends(get_db), _=Depends(require
 
 
 @router.post("/", response_model=AllocationOut, status_code=201, dependencies=[Depends(require_asset_manager)])
-async def allocate_asset(body: AllocationCreate, db: AsyncSession = Depends(get_db)):
+async def allocate_asset(body: AllocationCreate, db: AsyncSession = Depends(get_db), current_user: Employee = Depends(get_current_employee)):
     # CONFLICT CHECK: AIRTIGHT ROW LOCK
     # We lock the asset row to prevent concurrent allocations to the same asset
     result = await db.execute(
@@ -149,13 +149,15 @@ async def allocate_asset(body: AllocationCreate, db: AsyncSession = Depends(get_
     )
 
     # ── Activity log ───────────────────────────────────────────────────────
-    db.add(ActivityLog(
-        user_id=body.employee_id,
-        action="asset_allocated",
-        entity_type="Allocation",
-        entity_id=str(new_alloc.id),
+    await db.flush()
+    log_activity(
+        db,
+        current_user.id,
+        "asset_allocated",
+        "Allocation",
+        str(new_alloc.id),
         details={"asset_id": str(body.asset_id), "asset_name": asset.name},
-    ))
+    )
 
     await db.commit()
     await db.refresh(new_alloc)
@@ -193,7 +195,7 @@ async def get_allocation(allocation_id: uuid.UUID, db: AsyncSession = Depends(ge
 
 
 @router.post("/{allocation_id}/return", response_model=AllocationOut)
-async def return_asset(allocation_id: uuid.UUID, body: ReturnRequest, db: AsyncSession = Depends(get_db), _=Depends(require_authenticated)):
+async def return_asset(allocation_id: uuid.UUID, body: ReturnRequest, db: AsyncSession = Depends(get_db), current_user: Employee = Depends(get_current_employee)):
     alloc = await db.get(Allocation, allocation_id)
     if not alloc:
         raise HTTPException(status_code=404, detail="Allocation not found")
@@ -229,13 +231,14 @@ async def return_asset(allocation_id: uuid.UUID, body: ReturnRequest, db: AsyncS
         )
 
     # ── Activity log ───────────────────────────────────────────────────────
-    db.add(ActivityLog(
-        user_id=alloc.employee_id,
-        action="asset_returned",
-        entity_type="Allocation",
-        entity_id=str(alloc.id),
+    log_activity(
+        db,
+        current_user.id,
+        "asset_returned",
+        "Allocation",
+        str(alloc.id),
         details={"asset_id": str(alloc.asset_id), "was_overdue": was_overdue},
-    ))
+    )
 
     await db.commit()
     await db.refresh(alloc)
@@ -273,6 +276,8 @@ async def create_transfer_request(body: TransferRequestCreate, db: AsyncSession 
     )
     
     db.add(tr)
+    await db.flush()
+    log_activity(db, user.id, "Transfer Requested", "TransferRequest", str(tr.id))
     await db.commit()
     await db.refresh(tr)
     return tr
@@ -287,7 +292,7 @@ async def get_transfer(transfer_id: uuid.UUID, db: AsyncSession = Depends(get_db
 
 
 @router.post("/transfers/{transfer_id}/approve", response_model=TransferRequestOut, dependencies=[Depends(require_asset_manager)])
-async def approve_transfer(transfer_id: uuid.UUID, body: TransferRequestApproval, db: AsyncSession = Depends(get_db)):
+async def approve_transfer(transfer_id: uuid.UUID, body: TransferRequestApproval, db: AsyncSession = Depends(get_db), current_user: Employee = Depends(get_current_employee)):
     tr = await db.get(TransferRequest, transfer_id)
     if not tr:
         raise HTTPException(status_code=404, detail="Transfer Request not found")
@@ -296,12 +301,13 @@ async def approve_transfer(transfer_id: uuid.UUID, body: TransferRequestApproval
         tr.status = "Rejected"
 
         # ── Activity log ───────────────────────────────────────────────────
-        db.add(ActivityLog(
-            user_id=tr.requested_by,
-            action="transfer_rejected",
-            entity_type="TransferRequest",
-            entity_id=str(tr.id),
-        ))
+        log_activity(
+            db,
+            current_user.id,
+            "transfer_rejected",
+            "TransferRequest",
+            str(tr.id),
+        )
 
         await db.commit()
         await db.refresh(tr)
@@ -358,18 +364,19 @@ async def approve_transfer(transfer_id: uuid.UUID, body: TransferRequestApproval
             )
 
         # ── Activity log ───────────────────────────────────────────────────
-        db.add(ActivityLog(
-            user_id=tr.requested_by,
-            action="transfer_approved",
-            entity_type="TransferRequest",
-            entity_id=str(tr.id),
+        log_activity(
+            db,
+            current_user.id,
+            "transfer_approved",
+            "TransferRequest",
+            str(tr.id),
             details={
                 "asset_id": str(old_alloc.asset_id),
                 "asset_name": asset.name,
                 "from_allocation": str(old_alloc.id),
                 "to_employee": str(tr.target_employee_id),
             },
-        ))
+        )
 
         # Asset remains Allocated
         await db.commit()

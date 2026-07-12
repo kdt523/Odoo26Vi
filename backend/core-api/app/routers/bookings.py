@@ -24,7 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import get_current_user, require_authenticated
 from app.db import get_db
-from app.models.activity_log import ActivityLog
+from app.services.activity_log import log_activity
 from app.models.asset import Asset
 from app.models.booking import Booking
 from app.models.employee import Employee
@@ -157,13 +157,15 @@ async def create_booking(
     )
 
     # ── Activity log ───────────────────────────────────────────────────────
-    db.add(ActivityLog(
-        user_id=current_user.id,
-        action="booking_created",
-        entity_type="Booking",
-        entity_id=str(booking.id),
+    await db.flush()
+    log_activity(
+        db,
+        current_user.id,
+        "booking_created",
+        "Booking",
+        str(booking.id),
         details={"asset_id": str(body.asset_id), "asset_name": asset.name},
-    ))
+    )
 
     await db.commit()
     await db.refresh(booking)
@@ -273,13 +275,14 @@ async def cancel_booking(
     )
 
     # ── Activity log ───────────────────────────────────────────────────────
-    db.add(ActivityLog(
-        user_id=current_user.id,
-        action="booking_cancelled",
-        entity_type="Booking",
-        entity_id=str(booking.id),
+    log_activity(
+        db,
+        current_user.id,
+        "booking_cancelled",
+        "Booking",
+        str(booking.id),
         details={"cancelled_by": str(current_user.id), "asset_name": asset_name},
-    ))
+    )
 
     await db.commit()
     await db.refresh(booking)
@@ -327,13 +330,14 @@ async def reschedule_booking(
     booking.end_time = new_end
 
     # ── Activity log ───────────────────────────────────────────────────────
-    db.add(ActivityLog(
-        user_id=current_user.id,
-        action="booking_rescheduled",
-        entity_type="Booking",
-        entity_id=str(booking.id),
+    log_activity(
+        db,
+        current_user.id,
+        "booking_rescheduled",
+        "Booking",
+        str(booking.id),
         details={"new_start": new_start.isoformat(), "new_end": new_end.isoformat()},
-    ))
+    )
 
     await db.commit()
     await db.refresh(booking)
