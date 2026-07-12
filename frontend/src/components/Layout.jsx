@@ -7,6 +7,7 @@
 
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { useNotification } from '../context/NotificationContext';
 
 const NAV_ITEMS = [
   { path: '/dashboard',    label: '📊 Dashboard',    roles: [] },          // all roles
@@ -22,6 +23,7 @@ const NAV_ITEMS = [
 
 export default function Layout() {
   const { currentUser, role, logout } = useAuth();
+  const { unreadCount } = useNotification();
   const navigate = useNavigate();
 
   const visibleNav = NAV_ITEMS.filter(
@@ -51,7 +53,10 @@ export default function Layout() {
                 `nav-link ${isActive ? 'nav-link--active' : ''}`
               }
             >
-              {item.label}
+              <span className="nav-label">{item.label}</span>
+              {item.path === '/notifications' && unreadCount > 0 && (
+                <span className="badge badge--unread">{unreadCount > 99 ? '99+' : unreadCount}</span>
+              )}
             </NavLink>
           ))}
         </nav>
