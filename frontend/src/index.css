@@ -181,21 +181,141 @@ body {
 /* ── KPI Cards ─────────────────────────────────────────────────── */
 .kpi-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-  gap: 1rem;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 1.5rem;
 }
 .kpi-card {
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius);
-  padding: 1.25rem;
+  background: rgba(26, 29, 39, 0.7);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+  border-radius: 16px;
+  padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+.kpi-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(99, 102, 241, 0.3);
+}
+.kpi-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.875rem;
+  color: var(--color-muted);
+  font-weight: 500;
+}
+.kpi-icon { font-size: 1.25rem; }
+.kpi-value { font-size: 2rem; font-weight: 700; color: var(--color-text); }
+
+/* ── Dashboard Specific ────────────────────────────────────────── */
+.dashboard-section-title {
+  font-size: 1.25rem;
+  font-weight: 600;
+  margin-bottom: 1rem;
+  margin-top: 2rem;
+  color: var(--color-text);
+  letter-spacing: -0.02em;
+}
+
+.overdue-banner {
+  background: linear-gradient(135deg, rgba(248, 113, 113, 0.15), rgba(153, 27, 27, 0.1));
+  border: 1px solid rgba(248, 113, 113, 0.4);
+  border-radius: 12px;
+  padding: 1rem 1.5rem;
   display: flex;
   align-items: center;
   gap: 1rem;
+  color: #fca5a5;
+  font-weight: 500;
+  box-shadow: 0 4px 20px rgba(248, 113, 113, 0.05);
 }
-.kpi-icon { font-size: 2rem; }
-.kpi-value { font-size: 1.5rem; font-weight: 700; }
-.kpi-label { font-size: 0.75rem; color: var(--color-muted); }
+.overdue-banner-icon {
+  font-size: 1.25rem;
+}
+
+.quick-actions-bar {
+  display: flex;
+  gap: 1rem;
+  margin-top: 1.5rem;
+  flex-wrap: wrap;
+}
+.btn-quick-action {
+  background: rgba(26, 29, 39, 0.8);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: var(--color-text);
+  padding: 10px 20px;
+  border-radius: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  transition: all 0.2s ease;
+  backdrop-filter: blur(5px);
+}
+.btn-quick-action:hover {
+  background: rgba(99, 102, 241, 0.15);
+  border-color: rgba(99, 102, 241, 0.4);
+  transform: translateY(-2px);
+}
+.btn-quick-action.primary {
+  background: linear-gradient(135deg, var(--color-primary), var(--color-primary-h));
+  border: none;
+  box-shadow: 0 4px 15px rgba(99, 102, 241, 0.3);
+}
+.btn-quick-action.primary:hover {
+  background: linear-gradient(135deg, var(--color-primary-h), #4338ca);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(99, 102, 241, 0.4);
+}
+
+.recent-activity-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+.activity-item {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 1rem;
+  background: rgba(26, 29, 39, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.03);
+  border-radius: 12px;
+  transition: background 0.2s ease;
+}
+.activity-item:hover {
+  background: rgba(26, 29, 39, 0.8);
+}
+.activity-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: rgba(99, 102, 241, 0.1);
+  color: var(--color-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.1rem;
+}
+.activity-content {
+  flex: 1;
+}
+.activity-title {
+  font-weight: 500;
+  margin-bottom: 2px;
+}
+.activity-meta {
+  font-size: 0.8rem;
+  color: var(--color-muted);
+}
+
 
 /* ── Tabs ──────────────────────────────────────────────────────── */
 .tabs { display: flex; gap: 4px; margin-bottom: 1.5rem; border-bottom: 1px solid var(--color-border); }
