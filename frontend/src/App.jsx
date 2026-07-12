@@ -40,6 +40,7 @@ export default function App() {
       >
         <Route path="/dashboard"     element={<DashboardPage />} />
         <Route path="/assets"        element={<AssetsPage />} />
+        <Route path="/my-assets"     element={<AssetsPage endpoint="/assets/mine" title="My Assets" />} />
         <Route path="/assets/:id"    element={<AssetDetailPage />} />
         <Route path="/allocations"   element={<AllocationsPage />} />
         <Route path="/bookings"      element={<BookingsPage />} />

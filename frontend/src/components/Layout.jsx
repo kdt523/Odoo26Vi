@@ -11,7 +11,8 @@ import { useNotification } from '../context/NotificationContext';
 
 const NAV_ITEMS = [
   { path: '/dashboard',    label: '📊 Dashboard',    roles: [] },          // all roles
-  { path: '/assets',       label: '🗂️ Assets',        roles: [] },
+  { path: '/assets',       label: '🗂️ Assets',        roles: ['Admin', 'AssetManager', 'DepartmentHead'] },
+  { path: '/my-assets',    label: '🗂️ My Assets',     roles: ['Employee'] },
   { path: '/allocations',  label: '🔗 Allocations',   roles: ['Admin', 'AssetManager', 'DepartmentHead'] },
   { path: '/bookings',     label: '📅 Bookings',      roles: [] },
   { path: '/maintenance',  label: '🔧 Maintenance',   roles: [] },

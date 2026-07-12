@@ -16,7 +16,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, text, desc
 
-from app.core.security import require_asset_manager, require_authenticated
+from app.core.security import require_asset_manager, require_authenticated, require_dept_head
 from app.db import get_db
 from app.schemas.assets import AssetCreate, AssetListResponse, AssetOut, AssetUpdate, AssetHistoryItem
 from app.models.asset import Asset
@@ -130,6 +130,79 @@ async def register_asset(body: AssetCreate, current_user=Depends(require_asset_m
     await db.refresh(asset)
     
     return asset
+
+
+@router.get("/mine", response_model=AssetListResponse)
+async def get_my_assets(
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(require_authenticated),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+):
+    """
+    Return assets currently allocated to the calling Employee.
+    """
+    stmt = select(Asset).join(Allocation, Asset.id == Allocation.asset_id).where(
+        Allocation.status == "Active",
+        Allocation.employee_id == current_user.id
+    )
+    
+    count_stmt = select(func.count()).select_from(stmt.subquery())
+    total_result = await db.execute(count_stmt)
+    total = total_result.scalar_one()
+    
+    stmt = stmt.limit(page_size).offset((page - 1) * page_size)
+    result = await db.execute(stmt)
+    items = result.scalars().all()
+    
+    return {
+        "items": items,
+        "total": total,
+        "page": page,
+        "page_size": page_size
+    }
+
+
+@router.get("/department", response_model=AssetListResponse)
+async def get_department_assets(
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(require_dept_head),
+    department_id: Optional[uuid.UUID] = Query(None),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+):
+    """
+    Return assets allocated to a department. 
+    Department Heads are locked to their own department. Admins can query any.
+    """
+    target_dept_id = department_id
+    if current_user.role != "Admin":
+        target_dept_id = current_user.department_id
+        if not target_dept_id:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="You do not belong to a department.")
+            
+    if not target_dept_id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="department_id query parameter is required for Admins.")
+        
+    stmt = select(Asset).join(Allocation, Asset.id == Allocation.asset_id).where(
+        Allocation.status == "Active",
+        Allocation.department_id == target_dept_id
+    )
+    
+    count_stmt = select(func.count()).select_from(stmt.subquery())
+    total_result = await db.execute(count_stmt)
+    total = total_result.scalar_one()
+    
+    stmt = stmt.limit(page_size).offset((page - 1) * page_size)
+    result = await db.execute(stmt)
+    items = result.scalars().all()
+    
+    return {
+        "items": items,
+        "total": total,
+        "page": page,
+        "page_size": page_size
+    }
 
 
 @router.get("/{asset_id}", response_model=AssetOut)
