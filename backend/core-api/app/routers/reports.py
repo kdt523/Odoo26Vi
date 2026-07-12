@@ -1,7 +1,9 @@
 import csv
 import io
+from datetime import date, timedelta
+from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
-from sqlalchemy import select, func, desc, extract
+from sqlalchemy import select, func, desc, extract, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import require_authenticated
@@ -88,6 +90,74 @@ async def booking_heatmap(db: AsyncSession = Depends(get_db), _=Depends(require_
     data = [{"day_of_week": row.dow, "hour": row.hour, "count": row.count} for row in rows if row.dow is not None]
     return data
 
+@router.get("/maintenance-and-retirement-due")
+async def maintenance_and_retirement_due(
+    db: AsyncSession = Depends(get_db),
+    _=Depends(require_authenticated),
+    maintenance_window_days: int = Query(30, ge=1, le=365, description="Days ahead to check for due maintenance"),
+    retirement_window_days: int = Query(90, ge=1, le=730, description="Days ahead to check for nearing retirement"),
+):
+    """
+    Two-section report:
+    - due_for_maintenance: assets where next_maintenance_due_date is within
+      `maintenance_window_days` days or already past (null values excluded).
+    - nearing_retirement: assets where expected_retirement_date is within
+      `retirement_window_days` days or already past (null values excluded).
+    """
+    today = date.today()
+    maintenance_cutoff = today + timedelta(days=maintenance_window_days)
+    retirement_cutoff = today + timedelta(days=retirement_window_days)
+
+    # Due for maintenance: date is not null AND date <= cutoff
+    maintenance_stmt = (
+        select(Asset)
+        .where(
+            Asset.next_maintenance_due_date.isnot(None),
+            Asset.next_maintenance_due_date <= maintenance_cutoff,
+        )
+        .order_by(Asset.next_maintenance_due_date)
+    )
+    maintenance_result = await db.execute(maintenance_stmt)
+    maintenance_assets = maintenance_result.scalars().all()
+
+    # Nearing retirement: date is not null AND date <= cutoff
+    retirement_stmt = (
+        select(Asset)
+        .where(
+            Asset.expected_retirement_date.isnot(None),
+            Asset.expected_retirement_date <= retirement_cutoff,
+        )
+        .order_by(Asset.expected_retirement_date)
+    )
+    retirement_result = await db.execute(retirement_stmt)
+    retirement_assets = retirement_result.scalars().all()
+
+    def _asset_row(a: Asset) -> dict:
+        return {
+            "id": str(a.id),
+            "asset_tag": a.asset_tag,
+            "name": a.name,
+            "status": a.status,
+            "location": a.location,
+            "next_maintenance_due_date": str(a.next_maintenance_due_date) if a.next_maintenance_due_date else None,
+            "expected_retirement_date": str(a.expected_retirement_date) if a.expected_retirement_date else None,
+            "days_until_maintenance": (
+                (a.next_maintenance_due_date - today).days if a.next_maintenance_due_date else None
+            ),
+            "days_until_retirement": (
+                (a.expected_retirement_date - today).days if a.expected_retirement_date else None
+            ),
+        }
+
+    return {
+        "maintenance_window_days": maintenance_window_days,
+        "retirement_window_days": retirement_window_days,
+        "generated_at": str(today),
+        "due_for_maintenance": [_asset_row(a) for a in maintenance_assets],
+        "nearing_retirement": [_asset_row(a) for a in retirement_assets],
+    }
+
+
 @router.get("/export")
 async def export_report(report_type: str = Query("utilization"), db: AsyncSession = Depends(get_db), _=Depends(require_authenticated)):
     if report_type == "utilization":
@@ -113,6 +183,22 @@ async def export_report(report_type: str = Query("utilization"), db: AsyncSessio
             .group_by(Department.id)
         )
         headers = ["Department", "Active Allocations"]
+    elif report_type == "maintenance-retirement":
+        today = date.today()
+        stmt = (
+            select(
+                Asset.asset_tag,
+                Asset.name,
+                Asset.status,
+                Asset.next_maintenance_due_date,
+                Asset.expected_retirement_date,
+            )
+            .where(
+                (Asset.next_maintenance_due_date <= today + timedelta(days=30)) |
+                (Asset.expected_retirement_date <= today + timedelta(days=90))
+            )
+        )
+        headers = ["Asset Tag", "Name", "Status", "Next Maintenance Due", "Expected Retirement"]
     else:
         stmt = None
         headers = ["Data"]

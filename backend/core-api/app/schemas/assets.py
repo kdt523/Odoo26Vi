@@ -31,6 +31,8 @@ class AssetCreate(BaseModel):
     is_bookable: bool = False
     photo_ref: Optional[str] = None
     document_ref: Optional[str] = None
+    next_maintenance_due_date: Optional[date] = None
+    expected_retirement_date: Optional[date] = None
     # asset_tag is auto-generated — not accepted from client
 
 
@@ -45,6 +47,8 @@ class AssetUpdate(BaseModel):
     is_bookable: Optional[bool] = None
     photo_ref: Optional[str] = None
     document_ref: Optional[str] = None
+    next_maintenance_due_date: Optional[date] = None
+    expected_retirement_date: Optional[date] = None
 
 
 class AssetOut(BaseModel):
@@ -61,6 +65,8 @@ class AssetOut(BaseModel):
     status: str
     photo_ref: Optional[str] = None
     document_ref: Optional[str] = None
+    next_maintenance_due_date: Optional[date] = None
+    expected_retirement_date: Optional[date] = None
 
     model_config = {"from_attributes": True}
 
