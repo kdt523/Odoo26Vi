@@ -15,18 +15,8 @@ class MaintenanceRequestCreate(BaseModel):
     photo_ref: Optional[str] = None
 
 
-class MaintenanceApproval(BaseModel):
-    """Asset Manager approves or rejects a maintenance request."""
-    action: str = Field(..., pattern="^(approve|reject)$")
-
-
 class TechnicianAssignment(BaseModel):
     technician: str = Field(..., min_length=1, max_length=255)
-
-
-class MaintenanceStatusUpdate(BaseModel):
-    """Move request to InProgress or Resolved."""
-    status: str = Field(..., pattern="^(InProgress|Resolved)$")
 
 
 class MaintenanceRequestOut(BaseModel):
