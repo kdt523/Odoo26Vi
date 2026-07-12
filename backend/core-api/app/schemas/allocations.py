@@ -41,6 +41,12 @@ class ReturnRequest(BaseModel):
     actual_return_date: date
     return_condition_notes: Optional[str] = None
 
+class ReturnInitiateRequest(BaseModel):
+    condition_check_in_notes: Optional[str] = None
+
+class ReturnRejectRequest(BaseModel):
+    reason: str
+
 
 # ── TransferRequest ────────────────────────────────────────────────────────
 class TransferRequestCreate(BaseModel):

@@ -55,6 +55,7 @@ class Allocation(Base):
     status: Mapped[str] = mapped_column(
         SAEnum(
             "Active",
+            "ReturnRequested",
             "Returned",
             "TransferPending",
             "Transferred",
