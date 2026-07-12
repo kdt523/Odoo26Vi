@@ -137,6 +137,18 @@ export default function AssetsPage() {
     }
   };
 
+  const handleQrScan = async (decodedText) => {
+    setShowQrScanner(false);
+    // decodedText could be a full URL like /assets/lookup/AF-0001 or just the tag
+    const tag = decodedText.split('/').pop();
+    try {
+      const res = await coreApi.get(`/assets/lookup/${tag}`);
+      navigate(`/assets/${res.data.id}`);
+    } catch {
+      alert(`Asset not found for tag: ${tag}`);
+    }
+  };
+
   return (
     <div className="page">
       <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -146,6 +158,15 @@ export default function AssetsPage() {
             {isRegistering ? 'Cancel' : '+ Register Asset'}
           </button>
         )}
+        <button
+          id="btn-scan-qr"
+          className="btn btn-secondary"
+          onClick={() => setShowQrScanner(true)}
+          title="Scan QR Code"
+          style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+        >
+          📷 Scan QR
+        </button>
       </div>
 
       {role === 'DepartmentHead' && (

@@ -63,6 +63,37 @@ export default function AssetDetailPage() {
           <div><strong>Acquisition Date:</strong> {asset.acquisition_date || '-'}</div>
           <div><strong>Acquisition Cost:</strong> {asset.acquisition_cost ? `$${asset.acquisition_cost}` : '-'}</div>
         </div>
+
+        {/* ── QR Code Section ── */}
+        <div style={{ marginTop: '20px', paddingTop: '20px', borderTop: '1px solid #eee', display: 'flex', alignItems: 'center', gap: '20px' }}>
+          <div>
+            <p style={{ margin: '0 0 8px 0', fontWeight: 'bold', fontSize: '14px' }}>QR Code</p>
+            <img
+              id="asset-qr-code"
+              src={`${import.meta.env.VITE_CORE_API_URL || 'http://localhost:8000'}/api/v1/assets/qr/${asset.asset_tag}`}
+              alt={`QR Code for ${asset.asset_tag}`}
+              style={{ width: '120px', height: '120px', border: '1px solid #ddd', borderRadius: '4px' }}
+              onError={(e) => { e.target.style.display = 'none'; }}
+            />
+          </div>
+          <div>
+            <p style={{ margin: '0 0 8px 0', fontSize: '13px', color: '#666' }}>Scan to quickly pull up this asset from any device.</p>
+            <button
+              id="btn-print-qr"
+              className="btn btn-secondary"
+              onClick={() => {
+                const img = document.getElementById('asset-qr-code');
+                const win = window.open();
+                win.document.write(`<html><body style="display:flex;justify-content:center;align-items:center;height:100vh;"><div style="text-align:center"><img src="${img.src}" style="width:300px"/><p style="font-size:24px;font-family:monospace">${asset.asset_tag}</p></div></body></html>`);
+                win.document.close();
+                win.print();
+              }}
+              style={{ fontSize: '13px' }}
+            >
+              🖨️ Print QR
+            </button>
+          </div>
+        </div>
       </div>
 
       {/* ── History tabs ── */}
